@@ -1,0 +1,6 @@
+# Place files are big binaries; keep them as Studio backups, not in git.
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+build/

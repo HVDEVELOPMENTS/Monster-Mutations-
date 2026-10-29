@@ -1,0 +1,31 @@
+{
+  "name": "MonsterFactory",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "MonsterFactory": {
+        "$path": "src/ReplicatedStorage/MonsterFactory"
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "MonsterFactory": {
+        "$path": "src/ServerScriptService/MonsterFactory"
+      }
+    },
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "MonsterFactory": {
+        "$path": "src/ServerStorage/MonsterFactory"
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "$path": "src/StarterPlayerScripts"
+      }
+    }
+  }
+}
