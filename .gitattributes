@@ -1,0 +1,2 @@
+# Keep Unix line endings so Rojo syncs scripts into Studio unchanged.
+* text=auto eol=lf
