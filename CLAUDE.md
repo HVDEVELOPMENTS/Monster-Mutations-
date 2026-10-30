@@ -15,6 +15,10 @@ Monster Factory: a Roblox game (Luau) about incubating monsters whose mutations 
 - `git` may not be on PATH in older shells; it is at `%LOCALAPPDATA%\Programs\Git\cmd\git.exe`. Line endings are pinned to LF (`.gitattributes`) so synced sources stay unchanged.
 - Studio is driven through the Roblox Studio MCP tools. Get the `studio_id` from `list_roblox_studios` each session (it changes). Edit-only tools fail while Studio is in Play mode; the user sometimes presses Play, so check `get_studio_state` and stop play before editing.
 
+## Project agents and commands
+
+`.claude/agents/` has `planner`, `architect` and `code-reviewer`, tuned to this game's rules (server authority, exact odds, saved-data migration). `.claude/commands/` has `/plan-feature <request>` (plan, then wait for approval) and `/checkpoint create|verify|list <name>` (run the Studio tests, then tag `checkpoint/<name>` in git). They are adapted from the idea of WorldFlowAI/everything-claude-code, rewritten for Roblox; its hooks and web-specific rules were deliberately not installed.
+
 ## Running tests
 
 There is no CLI test runner; tests run inside Studio via the MCP `execute_luau` tool in a **Play** session on the **Server** datamodel (a fresh VM, so module caches are clean). Start play with `start_stop_play`, then run:
