@@ -120,16 +120,24 @@ local function pickTeam(data: any): { any }
 			table.insert(team, rec)
 		end
 	end
-	if #team == 0 then
-		local all = {}
-		for _, rec in data.Monsters do
-			table.insert(all, rec)
+	-- Fill the rest of the team (up to 3) with your strongest other monsters,
+	-- so one equipped pet never has to fight a whole trainer team alone.
+	if #team < 3 then
+		local inTeam = {}
+		for _, rec in team do
+			inTeam[rec.MonsterId] = true
 		end
-		table.sort(all, function(a, b)
+		local rest = {}
+		for _, rec in data.Monsters do
+			if not inTeam[rec.MonsterId] then
+				table.insert(rest, rec)
+			end
+		end
+		table.sort(rest, function(a, b)
 			return Battle.StatsFor(a).Attack > Battle.StatsFor(b).Attack
 		end)
-		for i = 1, math.min(3, #all) do
-			table.insert(team, all[i])
+		for i = 1, math.min(3 - #team, #rest) do
+			table.insert(team, rest[i])
 		end
 	end
 	return team

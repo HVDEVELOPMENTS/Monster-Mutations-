@@ -92,7 +92,7 @@ return function(t)
 
 	t.it("a strong team beats a wild monster once and is paid once", function()
 		local p, d = newPlayer()
-		give(p, d, "Mossling", 6, 1)
+		give(p, d, "Venomtail", 8, 1) -- Toxic beats the wild (Verdant) Mossling
 		d.Coins = 0
 		local s = battles:Start(p, "Wild", "TestSpot")
 		t.ok(s.Ok and #s.Battle.Team == 1 and #s.Battle.Enemy == 1, "battle started with best monster")
@@ -156,10 +156,14 @@ return function(t)
 		t.eq(battles:Act(p, s.Battle.Id, { Type = "Move", Index = 9 }).Error, "BadRequest", "bad move")
 		t.eq(battles:Act(p, s.Battle.Id, { Type = "Switch", To = 1 }).Error, "BadRequest", "already out")
 		local sw = battles:Act(p, s.Battle.Id, { Type = "Switch", To = 2 })
-		t.ok(sw.Ok and sw.Battle.P == 2, "switched")
-		local run = battles:Act(p, s.Battle.Id, { Type = "Run" })
-		t.eq(run.Result, "Ran", "ran away")
-		t.eq(d.Battles.Wins + d.Battles.Losses, 0, "running is neither")
+		-- (the new monster may be knocked out in the same turn, so check the event)
+		local sentOut = sw.Ok and sw.Events[1] and sw.Events[1].Kind == "SendOut" and sw.Events[1].Side == "P" and sw.Events[1].Index == 2
+		t.ok(sentOut, "switched")
+		if not sw.Result then
+			local run = battles:Act(p, s.Battle.Id, { Type = "Run" })
+			t.eq(run.Result, "Ran", "ran away")
+		end
+		t.eq(d.Battles.Wins, 0, "running or losing is not a win")
 		PlayerData._ForgetForTests(p)
 	end)
 
@@ -208,6 +212,21 @@ return function(t)
 			crits += if r.Crit then 1 else 0
 		end
 		t.near(crits / 2000, Battle.CRIT_CHANCE_STRONG, 0.04, "Ember crits Verdant about 25% of the time")
+	end)
+
+	t.it("one equipped pet is topped up to a team of 3 with your strongest others", function()
+		local p, d = newPlayer()
+		local pet = give(p, d, "Mossling", 1, 41)
+		give(p, d, "Pebbleback", 1, 42)
+		give(p, d, "Brookhopper", 1, 43)
+		give(p, d, "Venomtail", 6, 44)
+		d.Equipped = { pet }
+		local s = battles:Start(p, "Wild", "TestSpot")
+		t.eq(#s.Battle.Team, 3, "team of three")
+		t.eq(s.Battle.Team[1].MonsterId, pet, "the equipped pet leads")
+		t.eq(s.Battle.Team[2].SpeciesId, "Venomtail", "then the strongest other monster")
+		battles:Forget(p)
+		PlayerData._ForgetForTests(p)
 	end)
 
 	t.it("no monsters means no battle", function()

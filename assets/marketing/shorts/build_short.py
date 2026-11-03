@@ -1062,10 +1062,10 @@ def edit(stills=None):
     for fr, s in ((f0, 0.2), (f0 + 5, 1.15), (f0 + 8, 1.0)):
         icon.transform.scale_x = icon.transform.scale_y = s
         icon.transform.keyframe_insert("scale_x", frame=fr); icon.transform.keyframe_insert("scale_y", frame=fr)
-    for k, (text, size, y, col) in enumerate((("MONSTER MUTATIONS", 92, 0.585, (1, 0.84, 0.16, 1)),
-                                              ("PLAY FREE ON ROBLOX", 64, 0.535, (1, 1, 1, 1)))):
+    for k, (text, size, y, col) in enumerate((("MONSTER MUTATIONS", 84, 0.59, (1, 0.84, 0.16, 1)),
+                                              ("PLAY FREE ON ROBLOX", 64, 0.52, (1, 1, 1, 1)))):
         st = se.strips.new_effect(f"title{k}", "TEXT", 16 + k, f0 + 4, length=f1 - f0 - 3)
-        st.text = text; st.font = font; st.font_size = size; st.color = col
+        st.text = text; st.font = font; st.font_size = size; st.color = col; st.wrap_width = 1.0
         st.use_outline = True; st.outline_color = (0, 0, 0, 1); st.outline_width = 0.4
         st.location = (0.5, y); st.alignment_x = "CENTER"; st.anchor_x = "CENTER"; st.anchor_y = "CENTER"
     # output

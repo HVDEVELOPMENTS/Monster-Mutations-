@@ -82,8 +82,8 @@ for element, s in Battle.SuperMoves do
 	Battle.Moves[s[1]].Super = true
 end
 Battle.SUPER_CHARGE = 100
-Battle.CHARGE_DEAL = 25 -- meter gained by landing a hit
-Battle.CHARGE_TAKE = 12 -- meter gained by taking one
+Battle.CHARGE_DEAL = 34 -- meter gained by landing a hit
+Battle.CHARGE_TAKE = 20 -- meter gained by taking one
 
 function Battle.SuperFor(record: any): string?
 	local s = Battle.SuperMoves[record.PrimaryElement]
