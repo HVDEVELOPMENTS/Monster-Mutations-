@@ -7,6 +7,7 @@ local Config = require(ReplicatedStorage.MonsterFactory.Shared.Config)
 local Registry = require(ReplicatedStorage.MonsterFactory.Shared.Registry)
 local Progression = require(ReplicatedStorage.MonsterFactory.Shared.Progression)
 local Events = require(ReplicatedStorage.MonsterFactory.Shared.Events)
+local RewardsService = require(script.Parent.RewardsService)
 
 local ProgressionService = {}
 ProgressionService.__index = ProgressionService
@@ -32,6 +33,21 @@ end
 function ProgressionService.EarningSlots(data: any): number
 	local u = Progression.UpgradeById.HabitatExpansion
 	return Config.EarningSlots + ProgressionService.UpgradeLevel(data, u.Id) * u.SlotsPerLevel
+end
+
+function ProgressionService.EggSlots(data: any): number
+	local n = 0
+	for _, level in Config.EggSlotLevels do
+		if data.Level >= level then
+			n += 1
+		end
+	end
+	return n
+end
+
+function ProgressionService.PetSlots(data: any): number
+	local u = Progression.UpgradeById.CompanionHarness
+	return Config.PetSlots + ProgressionService.UpgradeLevel(data, u.Id) * u.PetSlotsPerLevel
 end
 
 function ProgressionService.RecycleChance(data: any): number
@@ -151,6 +167,7 @@ function ProgressionService:Gather(player: Player, node: BasePart)
 		return { Ok = false, Error = "Cooldown", ReadyIn = def.Cooldown - (now - last) }
 	end
 	data.GatherCooldowns[nodeId] = now
+	RewardsService.Bump(data, "Gather", 1, now)
 	local drops = ProgressionService.RollDrops(nodeType, Events.GetActive(def.Biome, now), self.Rng)
 	local granted = {}
 	for mat, n in drops do

@@ -1,4 +1,5 @@
--- Incubation chamber. The outcome is rolled and saved when incubation STARTS
+-- Incubation chamber: one egg per unlocked egg slot (more slots at higher levels,
+-- Config.EggSlotLevels). Each outcome is rolled and saved when incubation STARTS
 -- (the "stabilisation" point), then revealed on claim. Disconnecting or retrying
 -- can never reroll or duplicate it:
 --   * Start is idempotent per client RequestId (recent ids remembered in save data).
@@ -15,6 +16,7 @@ local BiomeService = require(script.Parent.BiomeService)
 local ProgressionService = require(script.Parent.ProgressionService)
 local DiscoveryService = require(script.Parent.DiscoveryService)
 local EconomyService = require(script.Parent.EconomyService)
+local RewardsService = require(script.Parent.RewardsService)
 
 local IncubationService = {}
 IncubationService.__index = IncubationService
@@ -81,12 +83,8 @@ function IncubationService:ActiveEventSet(biomeId: string)
 	return set
 end
 
--- Public (client-safe) view of the chamber. The rolled record stays hidden until claimed.
-function IncubationService:PublicState(data: any)
-	local inc = data.Incubation
-	if not inc then
-		return nil
-	end
+-- Public (client-safe) view of one egg. The rolled record stays hidden until claimed.
+function IncubationService:PublicEgg(inc: any)
 	return {
 		OpId = inc.OpId,
 		SpeciesId = inc.SpeciesId,
@@ -95,6 +93,15 @@ function IncubationService:PublicState(data: any)
 		EndsAt = inc.EndsAt,
 		Ready = self.Now() >= inc.EndsAt,
 	}
+end
+
+-- Every egg in the chamber, oldest first.
+function IncubationService:PublicState(data: any)
+	local eggs = {}
+	for _, inc in data.Incubations do
+		table.insert(eggs, self:PublicEgg(inc))
+	end
+	return eggs
 end
 
 function IncubationService:PityActive(data: any): boolean
@@ -128,11 +135,16 @@ function IncubationService:Start(player: Player, payload: any)
 	end
 	for _, s in data.RecentStarts do
 		if s.RequestId == payload.RequestId then
-			-- Retry of a request we already processed: report the same chamber, charge nothing.
-			return { Ok = true, Duplicate = true, Incubation = self:PublicState(data) }
+			-- Retry of a request we already processed: report the same egg, charge nothing.
+			for _, inc in data.Incubations do
+				if inc.OpId == s.OpId then
+					return { Ok = true, Duplicate = true, Incubation = self:PublicEgg(inc), Incubations = self:PublicState(data) }
+				end
+			end
+			return { Ok = true, Duplicate = true, Incubations = self:PublicState(data) }
 		end
 	end
-	if data.Incubation then
+	if #data.Incubations >= ProgressionService.EggSlots(data) then
 		return { Ok = false, Error = "ChamberBusy" }
 	end
 	local count = 0
@@ -181,7 +193,7 @@ function IncubationService:Start(player: Player, payload: any)
 		end
 	end
 	local now = self.Now()
-	data.Incubation = {
+	local inc = {
 		OpId = HttpService:GenerateGUID(false),
 		RequestId = payload.RequestId,
 		SpeciesId = ctx.SpeciesId,
@@ -193,14 +205,22 @@ function IncubationService:Start(player: Player, payload: any)
 		Record = record,
 		PityUsed = roll.PityUsed,
 	}
-	table.insert(data.RecentStarts, { RequestId = payload.RequestId, OpId = data.Incubation.OpId })
+	table.insert(data.Incubations, inc)
+	-- Pity counts at the roll (not the claim), so eggs waiting in other slots
+	-- can never all be pity eggs.
+	if record.RarityTier >= 3 then
+		data.PityCounter = 0
+	else
+		data.PityCounter += 1
+	end
+	table.insert(data.RecentStarts, { RequestId = payload.RequestId, OpId = inc.OpId })
 	while #data.RecentStarts > MAX_RECENT_STARTS do
 		table.remove(data.RecentStarts, 1)
 	end
 	data.Stats.Incubations += 1
 	self.PlayerData.MarkDirty(player, "All")
 	task.spawn(self.PlayerData.Save, player, false)
-	return { Ok = true, Incubation = self:PublicState(data), Recycled = recycled }
+	return { Ok = true, Incubation = self:PublicEgg(inc), Incubations = self:PublicState(data), Recycled = recycled }
 end
 
 function IncubationService:Claim(player: Player, opId: any)
@@ -217,8 +237,14 @@ function IncubationService:Claim(player: Player, opId: any)
 		resp.Duplicate = true
 		return resp
 	end
-	local inc = data.Incubation
-	if not inc or inc.OpId ~= opId then
+	local slot, inc = nil, nil
+	for i, egg in data.Incubations do
+		if egg.OpId == opId then
+			slot, inc = i, egg
+			break
+		end
+	end
+	if not inc then
 		return { Ok = false, Error = "NoSuchIncubation" }
 	end
 	if self.Now() < inc.EndsAt then
@@ -228,21 +254,24 @@ function IncubationService:Claim(player: Player, opId: any)
 	local record = inc.Record
 	local now = self.Now()
 	data.Monsters[record.MonsterId] = record
-	data.Incubation = nil
-	if record.RarityTier >= 3 then
-		data.PityCounter = 0
-	else
-		data.PityCounter += 1
-	end
+	table.remove(data.Incubations, slot)
 	local discovery = DiscoveryService.Register(data, record, now)
+	-- Daily quest progress.
+	RewardsService.Bump(data, "Hatch", 1, now)
+	if record.RarityTier >= 3 then
+		RewardsService.Bump(data, "HatchRare", 1, now)
+	end
+	if #discovery.NewMutations > 0 then
+		RewardsService.Bump(data, "Discover", #discovery.NewMutations, now)
+	end
 	data.Coins += discovery.Coins
 	local newCount = #discovery.NewMutations + (if discovery.NewSpecies then 1 else 0)
 	local rp = ProgressionService.ResearchPointsFor(record, newCount)
 	data.ResearchPoints += rp
 	-- First monster ever: equip it automatically so the follower shows up.
 	local autoEquipped = false
-	if data.Equipped == nil or data.Monsters[data.Equipped] == nil then
-		data.Equipped = record.MonsterId
+	if #data.Equipped == 0 then
+		table.insert(data.Equipped, record.MonsterId)
 		autoEquipped = true
 	end
 	local xp = Config.XPByTier[record.RarityTier] or 0

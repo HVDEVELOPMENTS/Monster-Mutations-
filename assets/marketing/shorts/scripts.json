@@ -1,0 +1,42 @@
+{
+  "hatch": {
+    "title": "1 in 100,000",
+    "lines": [
+      { "say": "This egg has a one in one hundred thousand chance...", "cap": "This egg has a 1 in 100,000 chance...", "beat": "intro" },
+      { "say": "of hatching a Transcendent monster.", "cap": "of hatching a *TRANSCENDENT* monster.", "beat": "glow" },
+      { "say": "But most of the time... you get this little guy.", "cap": "But most of the time... you get this little guy.", "beat": "fail" },
+      { "say": "So you hatch again. And again. And again.", "cap": "So you hatch again. And again. And again.", "beat": "retry" },
+      { "say": "Until one day...", "cap": "Until one day...", "beat": "charge" },
+      { "say": "this happens!", "cap": "*THIS* happens!", "beat": "reveal" },
+      { "say": "Can you hatch one? Play Monster Mutations on Roblox!", "cap": "Can you hatch one?", "beat": "cta" }
+    ]
+  },
+  "fusion": {
+    "title": "Fusion",
+    "lines": [
+      { "say": "What happens if you fuse a Sporeling...", "cap": "What happens if you fuse a *Sporeling*...", "beat": "left" },
+      { "say": "with a Miretoad?", "cap": "with a *Miretoad*?", "beat": "right" },
+      { "say": "They jump into the fusion swirl...", "cap": "They jump into the fusion swirl...", "beat": "jump" },
+      { "say": "spin, spin, spin...", "cap": "spin, spin, spin...", "beat": "spin" },
+      { "say": "and out pops a brand new monster. A Venomtail!", "cap": "and out pops a brand new monster. A *VENOMTAIL*!", "beat": "pop" },
+      { "say": "Fuse two Rare monsters, and it's always Rare or better!", "cap": "Two *Rare* monsters = always Rare or better!", "beat": "rare" },
+      { "say": "Fuse yours in Monster Mutations on Roblox!", "cap": "Fuse yours now!", "beat": "cta" }
+    ]
+  },
+  "ladder": {
+    "title": "Rarity ladder",
+    "lines": [
+      { "say": "Every monster you hatch gets a rarity.", "cap": "Every monster you hatch gets a rarity.", "beat": "intro" },
+      { "say": "Common.", "cap": "*COMMON*", "beat": "tier1" },
+      { "say": "Uncommon.", "cap": "*UNCOMMON*", "beat": "tier2" },
+      { "say": "Rare.", "cap": "*RARE*", "beat": "tier3" },
+      { "say": "Epic.", "cap": "*EPIC*", "beat": "tier4" },
+      { "say": "Legendary.", "cap": "*LEGENDARY*", "beat": "tier5" },
+      { "say": "Mythic.", "cap": "*MYTHIC*", "beat": "tier6" },
+      { "say": "Celestial.", "cap": "*CELESTIAL*", "beat": "tier7" },
+      { "say": "And the rarest of all...", "cap": "And the rarest of all...", "beat": "dark" },
+      { "say": "Transcendent!", "cap": "*TRANSCENDENT!*", "beat": "tier8" },
+      { "say": "Only one in one hundred thousand. Will you find one? Play Monster Mutations on Roblox!", "cap": "Only 1 in 100,000. Will you find one?", "beat": "cta" }
+    ]
+  }
+}

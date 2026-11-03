@@ -44,6 +44,15 @@ Progression.Upgrades = {
 		SlotsPerLevel = 2,
 		Costs = { 200, 500, 1200 },
 	},
+	{
+		Id = "CompanionHarness",
+		DisplayName = "Companion Harness",
+		Describe = function(level: number): string
+			return string.format("+%d monster%s can follow you (base 3)", level, if level == 1 then "" else "s")
+		end,
+		PetSlotsPerLevel = 1,
+		Costs = { 1500, 5000 },
+	},
 }
 Progression.UpgradeById = {}
 for _, u in Progression.Upgrades do

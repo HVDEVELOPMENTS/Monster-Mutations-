@@ -1,0 +1,100 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=block" rel="stylesheet">
+<style>html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:#000}svg{display:block}</style>
+<script src="art.js"></script>
+</head><body><div id="out"></div>
+<script>
+function at(x, y, s, inner, flip) {
+	return `<g transform="translate(${x - 120 * s * (flip ? -1 : 1)} ${y - 140 * s}) scale(${flip ? -s : s} ${s})">${inner}</g>`;
+}
+function bigText(str, x, y, size, fill, rot, stroke = 26) {
+	const t = (extra) => `<text x="${x}" y="${y}" text-anchor="middle" font-family="Luckiest Guy" font-size="${size}" ${extra}>${str}</text>`;
+	return `<g transform="rotate(${rot} ${x} ${y})">
+		${t(`fill="#2a0f45" stroke="#2a0f45" stroke-width="${stroke + 8}" stroke-linejoin="round" transform="translate(0 ${size * 0.08})"`)}
+		${t(`fill="${fill}" stroke="#2a0f45" stroke-width="${stroke}" stroke-linejoin="round" paint-order="stroke"`)}
+		${t(`fill="none" stroke="#ffffff" stroke-width="3" opacity="0.45"`)}
+	</g>`;
+}
+function pill(x, y, w, h, rot, fill, label, size, textFill = "#fff") {
+	return `<g transform="rotate(${rot} ${x} ${y})">
+		<rect x="${x - w / 2}" y="${y - h / 2 + 10}" width="${w}" height="${h}" rx="${h / 2}" fill="#2a0f45"/>
+		<rect x="${x - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" rx="${h / 2}" fill="${fill}" stroke="#2a0f45" stroke-width="10"/>
+		<rect x="${x - w / 2 + 24}" y="${y - h / 2 + 12}" width="${w - 48}" height="${h * 0.22}" rx="${h * 0.11}" fill="#fff" opacity="0.45"/>
+		${bigText(label, x, y + size * 0.36, size, textFill, 0, 14)}
+	</g>`;
+}
+function burst(x, y, r, n, fill) {
+	let p = "";
+	for (let i = 0; i < n * 2; i++) {
+		const a = (i / (n * 2)) * Math.PI * 2, rr = i % 2 ? r * 0.8 : r;
+		p += `${x + Math.cos(a) * rr},${y + Math.sin(a) * rr} `;
+	}
+	return `<polygon points="${p}" fill="#2a0f45" transform="translate(0 10)"/><polygon points="${p}" fill="${fill}" stroke="#2a0f45" stroke-width="10" stroke-linejoin="round"/>`;
+}
+
+const hero = monster({ id: "h", body: ["#d8a4ff", "#9a4dff", "#5a1fb8"], belly: "#f3dcff", iris: "#2ee6ff", irisDark: "#0b6bd6",
+	mutation: "both", crystal: ["#6ff8ff", "#2a6dff"], aura: "#fff6a0" });
+const toxic = monster({ id: "t", body: ["#c8ff8a", "#4fd23a", "#1d8a2a"], belly: "#efffd0", iris: "#ff4fd8", irisDark: "#9a1fd6",
+	mutation: "toxic", spots: [[60, 120, 9], [182, 118, 11], [170, 196, 8]], spotColor: "#b44dff", aura: "#c6ff5a" });
+const storm = monster({ id: "s", body: ["#a8f0ff", "#38b8ff", "#1557d6"], belly: "#e2f9ff", iris: "#ffd42e", irisDark: "#ff8a00",
+	mutation: "storm", aura: "#fff27a" });
+const fire = monster({ id: "f", body: ["#ffc08a", "#ff6a3d", "#c42a2a"], belly: "#ffe8c9", iris: "#7dff6a", irisDark: "#0fa35a",
+	horns: true, hornColor: "#ffd34a", mutation: "flame", aura: "#ffcf5a" });
+
+let bubbles = "";
+[[120, 160, 34, "#7ff6ff"], [1790, 140, 28, "#ff9be0"], [1840, 1000, 40, "#b6ff7a"], [560, 980, 22], [1380, 960, 26, "#7ff6ff"], [700, 120, 18], [1240, 110, 20, "#ff9be0"], [80, 660, 20]]
+	.forEach(([x, y, r, c]) => bubbles += bubble(x, y, r, c));
+let sparks = "";
+[[260, 90, 28], [1640, 330, 22], [1880, 470, 18], [430, 470, 20], [1180, 470, 26], [760, 520, 22], [1500, 90, 18], [40, 420, 16], [980, 1040, 18]]
+	.forEach(([x, y, r]) => sparks += sparkle(x, y, r));
+
+document.getElementById("out").innerHTML = `
+<svg width="1920" height="1080" viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+<defs>
+	${rad("50%", "60%", "75%", [[0, "#fffbd0"], [0.18, "#ffd23a"], [0.42, "#ff7b2e"], [0.7, "#f0327f"], [1, "#5a17c4"]], "bg")}
+	${lin(0, 0, 0, 1, [[0, "#fffbe0"], [0.45, "#ffe83a"], [1, "#ff9a1a"]], "gold")}
+	${lin(0, 0, 0, 1, [[0, "#f2fdff"], [0.45, "#7ff0ff"], [1, "#2a8dff"]], "ice")}
+	${lin(0, 0, 0, 1, [[0, "#fff0fb"], [0.5, "#ff7ad9"], [1, "#d61f9a"]], "pink")}
+	${rad("50%", "50%", "50%", [[0, "#000", 0], [0.72, "#000", 0], [1, "#2a0f45", 0.5]], "vig")}
+	${rad("50%", "50%", "50%", [[0, "#7ff6ff", 0.9], [0.6, "#7ff6ff", 0.35], [1, "#7ff6ff", 0]], "padglow")}
+	${lin(0, 0, 0, 1, [[0, "#b98cff"], [1, "#5a1fb8"]], "pad")}
+</defs>
+<rect width="1920" height="1080" fill="url(#bg)"/>
+${rays(960, 650, 28, 1500, "#ffffff", 0.15, 0.05)}
+<rect width="1920" height="1080" fill="url(#vig)"/>
+${bubbles}
+
+<!-- mutation pad under the hero -->
+<ellipse cx="1000" cy="1000" rx="420" ry="120" fill="url(#padglow)"/>
+<ellipse cx="1000" cy="1010" rx="300" ry="70" fill="#2a0f45"/>
+<ellipse cx="1000" cy="995" rx="300" ry="70" fill="url(#pad)" stroke="#2a0f45" stroke-width="10"/>
+<ellipse cx="1000" cy="985" rx="230" ry="44" fill="#7ff6ff" opacity="0.8" stroke="#ffffff" stroke-width="6"/>
+
+<!-- side monsters -->
+${at(1560, 770, 1.35, toxic, true)}
+${at(1760, 480, 1.05, storm, true)}
+${at(205, 330, 0.78, fire)}
+
+<!-- hero -->
+${at(1000, 690, 2.55, hero)}
+
+<!-- trainer -->
+<g transform="translate(150 450) scale(1.0)">${trainer()}</g>
+
+${sparks}
+
+<!-- title -->
+${bigText("MONSTER", 760, 210, 190, "url(#gold)", -4)}
+${bigText("MUTATIONS!", 860, 395, 200, "url(#ice)", -4)}
+
+<!-- callouts -->
+${burst(1700, 170, 140, 14, "#ff3d6e")}
+<g transform="rotate(10 1700 170)">
+	${bigText("1 IN A", 1700, 140, 50, "#ffffff", 0, 12)}
+	${bigText("MILLION!", 1700, 205, 62, "url(#gold)", 0, 12)}
+</g>
+${pill(1560, 560, 300, 92, 8, "url(#pink)", "MYTHIC!", 64)}
+${pill(390, 990, 680, 110, -4, "#3fc94a", "BE THE BEST TRAINER!", 64, "url(#gold)")}
+</svg>`;
+</script></body></html>

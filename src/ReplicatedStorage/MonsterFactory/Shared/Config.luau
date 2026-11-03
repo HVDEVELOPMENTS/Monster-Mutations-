@@ -8,6 +8,12 @@ Config.StartingInventory = { Dewdrop = 2 }
 
 Config.IncubationSeconds = 8
 Config.MaxMonsters = 200
+-- Eggs you can incubate at once: slot n opens at level EggSlotLevels[n].
+Config.EggSlotLevels = { 1, 5, 10, 20 }
+
+-- Character walk speed (Roblox default 16). Zones are 720 studs, so a faster
+-- walk keeps crossing one to ~25 s.
+Config.WalkSpeed = 28
 
 -- Coins per incubation, and the level at which each species becomes available.
 Config.Species = {
@@ -52,6 +58,8 @@ Config.SellValue = { 8, 15, 40, 120, 500, 2500, 15000, 100000 }
 
 -- Only the N highest-income monsters earn passive coins (your "habitat").
 Config.EarningSlots = 8
+-- Monsters that can follow you at once (Companion Harness adds more).
+Config.PetSlots = 3
 
 -- XP per claimed monster by rarity tier; XP needed for the next level.
 Config.XPByTier = { 10, 15, 30, 60, 150, 400, 1000, 3000 }
@@ -95,12 +103,21 @@ Config.RateLimits = {
 	StartIncubation = { 5, 5 },
 	ClaimIncubation = { 5, 5 },
 	SellMonster = { 10, 5 },
+	SellBulk = { 6, 5 },
 	ToggleLock = { 10, 5 },
 	BuyCatalyst = { 10, 5 },
 	MarkSeen = { 30, 5 },
 	SetSetting = { 10, 5 },
 	UnlockBiome = { 5, 5 },
 	EquipMonster = { 6, 5 },
+	FuseMonsters = { 6, 5 },
+	ClaimTutorialReward = { 3, 10 },
+	ClaimDaily = { 3, 10 },
+	ClaimQuest = { 6, 10 },
+	StartBattle = { 4, 5 },
+	BattleAction = { 12, 5 },
+	ChallengePlayer = { 3, 10 },
+	RespondChallenge = { 5, 5 },
 	BuyUpgrade = { 5, 5 },
 	BuyResearch = { 5, 5 },
 	Gather = { 6, 5 },

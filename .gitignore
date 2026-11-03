@@ -4,3 +4,12 @@
 *.rbxl.lock
 *.rbxlx.lock
 build/
+
+# Generated / rebuildable output (too big for GitHub)
+assets/marketing/shorts/out/
+graphify-out/
+src/graphify-out/
+# Blender backups and FBX texture-extract folders (the .fbx files are kept)
+*.blend1
+*.fbm/
+__pycache__/

@@ -13,19 +13,21 @@ local MonsterVisuals = require(Shared.MonsterVisuals)
 local UI = {}
 
 UI.Font = Enum.Font.FredokaOne
+UI.TitleFont = Enum.Font.LuckiestGuy -- chunky cartoon caps for panel titles
+-- Bright pet-sim palette: saturated blue panels, deep-blue wells, thick black outlines.
 UI.Colors = {
-	Panel = Color3.fromRGB(34, 38, 62),
-	PanelDark = Color3.fromRGB(24, 27, 46),
-	Card = Color3.fromRGB(48, 54, 86),
-	Stroke = Color3.fromRGB(10, 10, 22),
+	Panel = Color3.fromRGB(62, 152, 245),
+	PanelDark = Color3.fromRGB(28, 78, 165),
+	Card = Color3.fromRGB(110, 190, 255), -- light, so cards pop out of the dark wells
+	Stroke = Color3.fromRGB(14, 14, 28),
 	Text = Color3.fromRGB(255, 255, 255),
-	Muted = Color3.fromRGB(170, 178, 210),
-	Gold = Color3.fromRGB(255, 205, 60),
-	Green = Color3.fromRGB(80, 210, 100),
-	Blue = Color3.fromRGB(70, 150, 255),
-	Red = Color3.fromRGB(240, 80, 80),
-	Orange = Color3.fromRGB(255, 150, 40),
-	Purple = Color3.fromRGB(160, 100, 255),
+	Muted = Color3.fromRGB(205, 228, 255),
+	Gold = Color3.fromRGB(255, 210, 40),
+	Green = Color3.fromRGB(90, 220, 60),
+	Blue = Color3.fromRGB(60, 160, 255),
+	Red = Color3.fromRGB(250, 65, 65),
+	Orange = Color3.fromRGB(255, 150, 30),
+	Purple = Color3.fromRGB(170, 85, 255),
 }
 
 -- Only built-in sounds that load without asset permissions. Pitch varies the feel.
@@ -109,7 +111,7 @@ function UI.Label(parent: Instance, text: string, props: { [string]: any }?)
 		Size = UDim2.fromScale(1, 1),
 		Parent = parent,
 	})
-	UI.new("UIStroke", { Thickness = 2, Color = UI.Colors.Stroke, Parent = l })
+	UI.new("UIStroke", { Thickness = 2.5, Color = UI.Colors.Stroke, LineJoinMode = Enum.LineJoinMode.Round, Parent = l })
 	local sizeLimit = UI.new("UITextSizeConstraint", { MaxTextSize = 40, Parent = l })
 	for k, v in props or {} do
 		if k == "MaxTextSize" then
@@ -125,6 +127,29 @@ local function darker(c: Color3, f: number)
 	return c:Lerp(Color3.new(0, 0, 0), f)
 end
 UI.Darker = darker
+local function lighter(c: Color3, f: number)
+	return c:Lerp(Color3.new(1, 1, 1), f)
+end
+
+-- Glossy toy-button shading: a bright highlight on the top half, the base colour
+-- below, and a hard darker band at the bottom that reads as a 3D lip.
+local function glossSequence(color: Color3): ColorSequence
+	return ColorSequence.new({
+		ColorSequenceKeypoint.new(0, lighter(color, 0.5)),
+		ColorSequenceKeypoint.new(0.47, lighter(color, 0.18)),
+		ColorSequenceKeypoint.new(0.5, color),
+		ColorSequenceKeypoint.new(0.78, darker(color, 0.06)),
+		ColorSequenceKeypoint.new(0.8, darker(color, 0.32)),
+		ColorSequenceKeypoint.new(1, darker(color, 0.38)),
+	})
+end
+UI.GlossSequence = glossSequence
+
+-- Gives any frame the glossy look (for cards and pills built outside UIKit).
+function UI.Gloss(inst: GuiObject, color: Color3)
+	inst.BackgroundColor3 = Color3.new(1, 1, 1)
+	return UI.new("UIGradient", { Color = glossSequence(color), Rotation = 90, Parent = inst })
+end
 
 -- Bouncy gradient button. Returns the TextButton. Use UI.SetDisabled to grey it out:
 -- GuiButton.Active=false would also stop Activated from firing, so we never use it.
@@ -136,11 +161,12 @@ function UI.Button(parent: Instance, text: string, color: Color3, props: { [stri
 		Size = UDim2.fromOffset(160, 50),
 		Parent = parent,
 	})
-	UI.Corner(b, 12)
+	UI.Corner(b, 10)
 	UI.Stroke(b, 3)
-	local grad = UI.Gradient(b, color:Lerp(Color3.new(1, 1, 1), 0.25), darker(color, 0.2))
+	local grad = UI.new("UIGradient", { Color = glossSequence(color), Rotation = 90, Parent = b })
 	local scale = UI.new("UIScale", { Parent = b })
-	local label = UI.Label(b, text, { Name = "Label", Size = UDim2.new(1, -12, 1, -10), Position = UDim2.fromOffset(6, 5) })
+	-- Text sits a little high, above the lip.
+	local label = UI.Label(b, text, { Name = "Label", Size = UDim2.new(1, -12, 0.8, -6), Position = UDim2.fromOffset(6, 3) })
 	local function tweenScale(s: number, t: number?, style: Enum.EasingStyle?)
 		TweenService:Create(scale, TweenInfo.new(t or 0.12, style or Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = s }):Play()
 	end
@@ -169,9 +195,7 @@ function UI.Button(parent: Instance, text: string, color: Color3, props: { [stri
 		end
 	end)
 	b:GetAttributeChangedSignal("Disabled"):Connect(function()
-		grad.Color = if enabled()
-			then ColorSequence.new(color:Lerp(Color3.new(1, 1, 1), 0.25), darker(color, 0.2))
-			else ColorSequence.new(Color3.fromRGB(120, 120, 130), Color3.fromRGB(80, 80, 90))
+		grad.Color = glossSequence(if enabled() then color else Color3.fromRGB(125, 128, 140))
 	end)
 	for k, v in props or {} do
 		(b :: any)[k] = v
@@ -242,19 +266,29 @@ function UI.Panel(screen: ScreenGui, title: string, size: UDim2, accent: Color3)
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.52),
 		Size = size,
-		BackgroundColor3 = UI.Colors.Panel,
+		BackgroundColor3 = Color3.new(1, 1, 1),
 		Visible = false,
 		Parent = screen,
 	})
-	UI.Corner(frame, 18)
-	UI.Stroke(frame, 4)
+	UI.Corner(frame, 16)
+	UI.Stroke(frame, 5)
+	UI.Gradient(frame, lighter(UI.Colors.Panel, 0.12), darker(UI.Colors.Panel, 0.18))
 	UI.new("UISizeConstraint", { MaxSize = Vector2.new(size.X.Offset > 0 and size.X.Offset or 980, 680), Parent = frame })
 	local scale = UI.new("UIScale", { Parent = frame })
-	local header = UI.new("Frame", { BackgroundColor3 = accent, Size = UDim2.new(1, 0, 0, 56), Parent = frame })
-	UI.Corner(header, 18)
-	UI.Gradient(header, accent:Lerp(Color3.new(1, 1, 1), 0.2), darker(accent, 0.25))
-	UI.Label(header, title, { Size = UDim2.new(1, -120, 0, 40), Position = UDim2.fromOffset(20, 8), TextXAlignment = Enum.TextXAlignment.Left })
-	local close = UI.Button(header, "X", UI.Colors.Red, { Size = UDim2.fromOffset(46, 46), Position = UDim2.new(1, -52, 0, 5) })
+	-- Title bar: a glossy accent plank with its own outline, overhanging the top edge.
+	local header = UI.new("Frame", { BackgroundColor3 = accent, Size = UDim2.new(1, 0, 0, 58), Parent = frame })
+	UI.Corner(header, 14)
+	UI.Stroke(header, 4)
+	UI.Gloss(header, accent)
+	UI.Label(header, title, {
+		Font = UI.TitleFont,
+		Size = UDim2.new(1, -120, 0, 40),
+		Position = UDim2.fromOffset(20, 7),
+		TextXAlignment = Enum.TextXAlignment.Left,
+	})
+	local close = UI.Button(header, "X", UI.Colors.Red, { Size = UDim2.fromOffset(46, 46), Position = UDim2.new(1, -54, 0, 6) })
+	local closeLabel = close:FindFirstChild("Label") :: TextLabel
+	closeLabel.Font = UI.TitleFont
 	local content = UI.new("Frame", {
 		Name = "Content",
 		BackgroundTransparency = 1,
@@ -299,9 +333,10 @@ function UI.Toast(text: string, color: Color3?)
 	if not toastHolder then
 		return
 	end
-	local f = UI.new("Frame", { BackgroundColor3 = color or UI.Colors.Blue, Size = UDim2.fromOffset(400, 44), ZIndex = 50, Parent = toastHolder })
+	local f = UI.new("Frame", { Size = UDim2.fromOffset(400, 44), ZIndex = 50, Parent = toastHolder })
 	UI.Corner(f, 12)
 	UI.Stroke(f, 3)
+	UI.Gloss(f, color or UI.Colors.Blue)
 	UI.Label(f, text, { Size = UDim2.new(1, -16, 1, -10), Position = UDim2.fromOffset(8, 5), ZIndex = 51 })
 	local s = UI.new("UIScale", { Scale = 0.5, Parent = f })
 	TweenService:Create(s, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
@@ -368,7 +403,8 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 end)
 
--- Creates a ViewportFrame showing a monster. opts: { Spin, Silhouette, Seed, Zoom, RarityTier }
+-- Creates a ViewportFrame showing a monster. opts: { Spin, Silhouette, Seed, Zoom, RarityTier, Yaw }
+-- (Yaw: turn in radians; the default 0.5 is a 3/4 front view, ~2.6 shows its back)
 function UI.MonsterViewport(parent: Instance, speciesId: string, genes: any?, mutations: { string }?, opts: { [string]: any }?)
 	opts = opts or {}
 	local vp = UI.new("ViewportFrame", {
@@ -380,8 +416,27 @@ function UI.MonsterViewport(parent: Instance, speciesId: string, genes: any?, mu
 		Parent = parent,
 	})
 	local model = MonsterVisuals.Build(speciesId, genes, mutations, { Silhouette = opts.Silhouette, Seed = opts.Seed, RarityTier = opts.RarityTier })
+	-- ViewportFrames don't draw SurfaceAppearances (the mesh goes invisible), so
+	-- swap them out: full-colour textures (untinted, e.g. lava) become TextureIDs,
+	-- tinted grey detail textures become the plain tint colour. Game scripts can't
+	-- read SurfaceAppearance.ColorMap, so the normaliser stores it as the piece's
+	-- "ColorMap" attribute.
+	for _, p in model:GetDescendants() do
+		local sa = p:IsA("MeshPart") and p:FindFirstChildOfClass("SurfaceAppearance")
+		if sa then
+			local tint = sa.Color
+			local map = p:GetAttribute("ColorMap")
+			if math.min(tint.R, tint.G, tint.B) > 0.97 and type(map) == "string" then
+				p.TextureID = map
+			else
+				p.Color = tint
+			end
+			p.Material = Enum.Material.SmoothPlastic
+			sa:Destroy()
+		end
+	end
 	-- Models face -Z and the camera sits at -Z, so a small yaw gives a 3/4 view.
-	local base = CFrame.Angles(0, 0.5, 0)
+	local base = CFrame.Angles(0, opts.Yaw or 0.5, 0)
 	model:PivotTo(base)
 	model.Parent = vp
 	local cam = Instance.new("Camera")

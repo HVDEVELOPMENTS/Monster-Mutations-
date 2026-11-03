@@ -132,6 +132,21 @@ end
 --   Mouth (CFrame), Cheeks ({ CFrame }).
 -- Mutation anchors: Head, Back, Tail (CFrames) and Body = { Center, Radius }.
 local Rigs = {}
+-- Anchors shared by a part rig and its mesh rig (fresh table per call; Build mutates it).
+local RigAnchors = {}
+
+RigAnchors.Mossling = function()
+	return {
+		Style = "Cute",
+		Eyes = { C(-0.55, 2.12, -1.3), C(0.55, 2.12, -1.3) },
+		EyeSize = 0.82,
+		Mouth = C(0, 1.72, -1.38),
+		Cheeks = { CFrame.lookAt(V(-0.95, 1.8, -1.12), V(-1.6, 1.8, -2.0)), CFrame.lookAt(V(0.95, 1.8, -1.12), V(1.6, 1.8, -2.0)) },
+		Head = C(0, 3.05, 0),
+		Back = C(0, 2.95, 0.6),
+		Body = { Center = V(0, 1.75, 0), Radius = 1.35 },
+	}
+end
 
 Rigs.Mossling = function(m, col)
 	local body = part(m, "Body", BALL, V(3.0, 2.7, 2.8), C(0, 1.75, 0), col)
@@ -151,16 +166,7 @@ Rigs.Mossling = function(m, col)
 	for k = 0, 2 do
 		spike(m, "BackSpike", C(0, 2.85 - k * 0.3, 0.45 + k * 0.42) * CFrame.Angles(0.5 + k * 0.3, 0, 0), 0.55, 0.42, shade(col, -0.45))
 	end
-	return {
-		Style = "Cute",
-		Eyes = { C(-0.55, 2.12, -1.3), C(0.55, 2.12, -1.3) },
-		EyeSize = 0.82,
-		Mouth = C(0, 1.72, -1.38),
-		Cheeks = { CFrame.lookAt(V(-0.95, 1.8, -1.12), V(-1.6, 1.8, -2.0)), CFrame.lookAt(V(0.95, 1.8, -1.12), V(1.6, 1.8, -2.0)) },
-		Head = C(0, 3.05, 0),
-		Back = C(0, 2.95, 0.6),
-		Body = { Center = V(0, 1.75, 0), Radius = 1.35 },
-	}
+	return RigAnchors.Mossling()
 end
 
 Rigs.Pebbleback = function(m, col)
@@ -325,6 +331,20 @@ end
 
 -- ===== Emberpeak Volcano rigs =====
 local LAVA = Color3.fromRGB(255, 120, 30)
+
+-- Mesh rig only (molten block biped from assets/models/cindermite.py); the part rig
+-- below keeps its own beetle anchors.
+RigAnchors.Cindermite = function()
+	return {
+		Style = "Molten",
+		Eyes = { C(-0.5, 2.1, -1.13), C(0.5, 2.1, -1.13) },
+		EyeSize = 0.62,
+		Mouth = C(0, 1.42, -1.13),
+		Head = C(0, 3.0, 0),
+		Back = C(0, 2.6, 0.9),
+		Body = { Center = V(0, 1.85, 0), Radius = 1.2 },
+	}
+end
 
 Rigs.Cindermite = function(m, col)
 	local body = part(m, "Body", BALL, V(2.6, 1.5, 3.0), C(0, 1.1, 0.2), col)
@@ -674,12 +694,152 @@ Rigs.Venomtail = function(m, col)
 end
 
 -- Big glossy eyes, mouth and blush. eyeColor/eyeMat come from an Eye mutation, if any.
+-- ===== Stage 9: Blender mesh rigs =====
+-- Templates are Models of MeshParts in ReplicatedStorage.MonsterMeshes.<SpeciesId>,
+-- imported from assets/models and saved in the place (Rojo does not manage them).
+-- They are normalised once in Studio so each piece already sits in rig space;
+-- Build clones them and styles each piece from MeshTones: a number (shade of the
+-- palette colour), a Color3, "Texture" (keep the baked texture from Blender, as
+-- is), or { Color, Material, Transparency } (plain, texture removed). Numbers and
+-- Color3s tint a textured piece through its SurfaceAppearance. Anchors come from RigAnchors. A species
+-- without a template, tones or anchors keeps its part rig.
+local NEON_FLAME = { Color = Color3.fromRGB(255, 125, 25), Material = "Neon", Transparency = 0.05 }
+MonsterVisuals.MeshTones = {
+	Mossling = { Body = 0, Belly = 0.45, Foot = -0.18, Claw = -0.55, BackSpike = -0.45, Leaf = "Texture" },
+	Cindermite = { Body = "Texture", Leg = "Texture", Arm = "Texture", Flame = NEON_FLAME },
+}
+-- Tests point this at their own folder; nil means ReplicatedStorage.MonsterMeshes.
+MonsterVisuals.MeshFolder = nil :: Instance?
+
+function MonsterVisuals.GetMeshTemplate(speciesId: string): Model?
+	local folder = MonsterVisuals.MeshFolder or game:GetService("ReplicatedStorage"):FindFirstChild("MonsterMeshes")
+	local t = folder and folder:FindFirstChild(speciesId)
+	if not (t and t:IsA("Model") and t:FindFirstChild("Body")) then
+		return nil
+	end
+	-- Hand-made rigs need tones + anchors; upgraded rigs only need the part rig.
+	if (MonsterVisuals.MeshTones[speciesId] and RigAnchors[speciesId]) or Rigs[speciesId] then
+		return t
+	end
+	return nil
+end
+
+-- Visible colour of a piece. A textured mesh shows its SurfaceAppearance tint
+-- (multiplied over the baked texture), not BasePart.Color, so colour mutations
+-- go through these.
+local function getTint(p: BasePart): Color3
+	local sa = p:FindFirstChildOfClass("SurfaceAppearance")
+	return if sa then sa.Color else p.Color
+end
+local function setTint(p: BasePart, c: Color3)
+	p.Color = c
+	local sa = p:FindFirstChildOfClass("SurfaceAppearance")
+	if sa then
+		sa.Color = c
+	end
+end
+
+-- Plain piece: no texture, explicit colour/material (neon flames, glass spikes).
+local function makePlain(p: MeshPart, color: Color3, material: Enum.Material, transparency: number)
+	for _, sa in p:GetChildren() do
+		if sa:IsA("SurfaceAppearance") then
+			sa:Destroy()
+		end
+	end
+	p.TextureID = ""
+	p.Color = color
+	p.Material = material
+	p.Transparency = transparency
+end
+
+local function addPiece(m: Model, p: MeshPart)
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Parent = m
+end
+
+local function finishMeshRig(m: Model)
+	local body = m:FindFirstChild("Body") :: BasePart
+	m.PrimaryPart = body
+	-- Imported pieces carry the import's turn (e.g. 180 deg about Y). Pin the model
+	-- pivot to the body centre with no rotation, as part rigs have, so PivotTo /
+	-- lookAt callers (pet follower, reveal, viewports) face the monster along -Z.
+	body.PivotOffset = body.CFrame:ToObjectSpace(CFrame.new(body.Position))
+end
+
+local function buildMeshRig(m: Model, template: Model, tones, col: Color3)
+	for _, src in template:GetChildren() do
+		if src:IsA("MeshPart") then
+			local p = src:Clone()
+			local tone = tones[p.Name]
+			if type(tone) == "table" then
+				makePlain(p, tone.Color, mat(tone.Material), tone.Transparency or 0)
+			elseif tone ~= "Texture" then
+				-- Palette shade: tints the baked texture when there is one.
+				setTint(p, if typeof(tone) == "Color3" then tone else shade(col, tone or 0))
+				p.Material = Enum.Material.SmoothPlastic
+			end
+			addPiece(m, p)
+		end
+	end
+	finishMeshRig(m)
+end
+
+-- Upgraded rigs (assets/models/rig_upgrade.py): each mesh piece is a sculpted copy
+-- of the part rig's same-named part(s), in the same place. The part rig is built
+-- off-screen for its anchors and to colour each piece like its nearest same-named
+-- part, so palettes, shading and glowing parts carry over without tone tables.
+local PLAIN_MATERIALS = { [Enum.Material.Neon] = true, [Enum.Material.Glass] = true, [Enum.Material.ForceField] = true }
+local function buildMeshFromRig(m: Model, template: Model, speciesId: string, col: Color3)
+	local scratch = Instance.new("Model")
+	local anchors = Rigs[speciesId](scratch, col)
+	local byName: { [string]: { BasePart } } = {}
+	for _, p in scratch:GetChildren() do
+		if p:IsA("BasePart") then
+			byName[p.Name] = byName[p.Name] or {}
+			table.insert(byName[p.Name], p)
+		end
+	end
+	for _, src in template:GetChildren() do
+		if src:IsA("MeshPart") then
+			local piece = src:Clone()
+			local best, bestDist = nil, math.huge
+			for _, p in byName[piece.Name] or {} do
+				local d = (p.Position - piece.Position).Magnitude
+				if d < bestDist then
+					best, bestDist = p, d
+				end
+			end
+			if best and PLAIN_MATERIALS[best.Material] then
+				makePlain(piece, best.Color, best.Material, best.Transparency)
+				piece.Reflectance = best.Reflectance
+			elseif best then
+				setTint(piece, best.Color)
+				piece.Material = Enum.Material.SmoothPlastic
+			end
+			addPiece(m, piece)
+		end
+	end
+	scratch:Destroy()
+	finishMeshRig(m)
+	return anchors
+end
+
 local function drawFace(m: Model, a, eyeColor: Color3?, eyeMat: Enum.Material?)
 	local s = a.EyeSize
 	local dark = Color3.fromRGB(22, 22, 34)
 	for i, cf in a.Eyes do
 		local side = if i == 1 then -1 else 1
-		if a.Style == "Fierce" then
+		if a.Style == "Molten" then
+			-- Big round glowing eyes in dark sockets, like embers looking out of rock.
+			part(m, "Eye", BALL, V(s * 1.15, s * 1.15, s * 0.3), cf, Color3.fromRGB(25, 12, 10))
+			part(m, "Iris", BALL, V(s * 0.9, s * 0.9, s * 0.2), cf * C(0, 0, -s * 0.08), eyeColor or Color3.fromRGB(255, 200, 60), eyeMat or Enum.Material.Neon)
+			part(m, "Pupil", BALL, V(s * 0.42, s * 0.42, s * 0.12), cf * C(side * s * 0.04, -s * 0.02, -s * 0.15), Color3.fromRGB(30, 15, 10))
+			part(m, "Glint", BALL, V(s * 0.16, s * 0.16, s * 0.08), cf * C(-s * 0.2, s * 0.22, -s * 0.2), WHITE, Enum.Material.Neon)
+		elseif a.Style == "Fierce" then
 			part(m, "Eye", BALL, V(s * 1.15, s * 0.8, s * 0.4), cf, dark)
 			part(m, "Iris", BALL, V(s * 0.75, s * 0.55, s * 0.2), cf * C(0, -s * 0.03, -s * 0.15), eyeColor or a.IrisColor or WHITE, Enum.Material.Neon)
 			part(m, "Glint", BALL, V(s * 0.2, s * 0.2, s * 0.1), cf * C(-s * 0.18, s * 0.1, -s * 0.24), WHITE, Enum.Material.Neon)
@@ -698,6 +858,10 @@ local function drawFace(m: Model, a, eyeColor: Color3?, eyeMat: Enum.Material?)
 			for _, x in { -0.16, 0.16 } do
 				spike(m, "Fang", mouth * C(x, 0.02, -0.02) * CFrame.Angles(math.pi, 0, 0), 0.22, 0.13, WHITE)
 			end
+		elseif a.Style == "Molten" then
+			-- Dark slot with a hot glow inside.
+			part(m, "Mouth", BLOCK, V(0.8, 0.26, 0.08), mouth, Color3.fromRGB(30, 12, 8))
+			part(m, "Mouth", BLOCK, V(0.6, 0.08, 0.06), mouth * C(0, -0.04, -0.03), Color3.fromRGB(255, 110, 30), Enum.Material.Neon)
 		elseif a.Style == "Frog" then
 			part(m, "Mouth", BLOCK, V(0.75, 0.07, 0.05), mouth, dark)
 			for _, side in { -1, 1 } do
@@ -887,7 +1051,7 @@ end
 
 Builders.Chilled = function(m, a, v)
 	local body = m.PrimaryPart
-	body.Color = body.Color:Lerp(v.Color, 0.35)
+	setTint(body, getTint(body):Lerp(v.Color, 0.35))
 end
 Builders.FrozenCore = function(m, a, v)
 	part(m, "FrostCore", BALL, V(0.6, 0.6, 0.6), C(a.Body.Center + V(0, 0.1, -a.Body.Radius * 0.95)), v.Color, Enum.Material.Neon)
@@ -925,7 +1089,7 @@ end
 Builders.AbsoluteZero = function(m, a, v)
 	local body = m.PrimaryPart
 	body.Material = Enum.Material.Glass
-	body.Color = v.Color
+	setTint(body, v.Color)
 	addOrbiters(m, a.Body.Center, 8, a.Body.Radius + 0.5, Color3.fromRGB(200, 240, 255), 0.15, 0.4)
 end
 
@@ -1140,14 +1304,15 @@ end
 
 KindBuilders.Tint = function(m, a, v)
 	local body = m.PrimaryPart
-	body.Color = body.Color:Lerp(v.Color, 0.4)
+	setTint(body, getTint(body):Lerp(v.Color, 0.4))
 end
 
 -- ===== Realism details (every monster) =====
 -- Two-tone shading (darker back), glossy eyes, toe pads, tufts and nostrils.
 local function detailPass(m: Model, a, col: Color3, speciesId: string)
 	local body = m.PrimaryPart :: BasePart
-	if body.Shape == BALL or body:FindFirstChildOfClass("SpecialMesh") then
+	-- Part rigs only; mesh bodies (no Shape property) carry their own shading.
+	if body:IsA("Part") and (body.Shape == BALL or body:FindFirstChildOfClass("SpecialMesh")) then
 		local s = body.Size
 		part(m, "BackShade", BALL, V(s.X * 0.97, s.Y * 0.9, s.Z * 0.97), body.CFrame * C(0, s.Y * 0.09, s.Z * 0.02), shade(col, -0.16))
 	end
@@ -1213,11 +1378,11 @@ local function applyPattern(m: Model, anchors, v, seedBase: number)
 	local body = m.PrimaryPart
 	if v.Pattern == "Moss" then
 		body.Material = Enum.Material.Grass
-		body.Color = body.Color:Lerp(v.Color, 0.6)
+		setTint(body, getTint(body):Lerp(v.Color, 0.6))
 		return
 	end
 	if v.Pattern == "Frost" then
-		body.Color = body.Color:Lerp(v.Color, 0.65)
+		setTint(body, getTint(body):Lerp(v.Color, 0.65))
 		body.Material = Enum.Material.Ice
 		return
 	end
@@ -1259,7 +1424,16 @@ function MonsterVisuals.Build(speciesId: string, genes: { [string]: any }?, muta
 	model.Name = speciesId
 	local palette = genes.BaseColorGene or species.Palettes[1]
 	local color = MonsterVisuals.Palettes[palette] or Color3.fromRGB(150, 150, 150)
-	local anchors = Rigs[speciesId](model, color)
+	local template = MonsterVisuals.GetMeshTemplate(speciesId)
+	local anchors
+	if template and MonsterVisuals.MeshTones[speciesId] and RigAnchors[speciesId] then
+		buildMeshRig(model, template, MonsterVisuals.MeshTones[speciesId], color)
+		anchors = RigAnchors[speciesId]()
+	elseif template then
+		anchors = buildMeshFromRig(model, template, speciesId, color)
+	else
+		anchors = Rigs[speciesId](model, color)
+	end
 	-- Safe defaults so a builder never fails on a rig without that region.
 	local top = C(anchors.Body.Center + V(0, anchors.Body.Radius * 0.9, 0))
 	anchors.Back = anchors.Back or top
@@ -1308,6 +1482,11 @@ function MonsterVisuals.Build(speciesId: string, genes: { [string]: any }?, muta
 			if d:IsA("BasePart") then
 				d.Color = Color3.fromRGB(20, 20, 28)
 				d.Material = Enum.Material.SmoothPlastic
+				if d:IsA("MeshPart") then
+					d.TextureID = "" -- baked textures would show through the silhouette
+				end
+			elseif d:IsA("SurfaceAppearance") then
+				d:Destroy()
 			elseif d:IsA("ParticleEmitter") then
 				d:Destroy()
 			end
@@ -1348,6 +1527,8 @@ local ROLE_BY_NAME = {
 	Antenna = "Ear", AntennaTip = "Ear", Crest = "Ear",
 	Eye = "Blink", Iris = "Blink", Glint = "Blink", Pupil = "Blink",
 	Puff = "Puff",
+	Arm = "Arm",
+	Flame = "Flame",
 }
 local animData = setmetatable({}, { __mode = "k" }) :: { [Model]: any }
 
@@ -1374,6 +1555,13 @@ function MonsterVisuals.PrepareAnimation(model: Model)
 				e.Pivot = Vector3.new(rest.X - e.Side * 0.7, rest.Y, rest.Z)
 			elseif role == "Tentacle" then
 				e.Pivot = Vector3.new(rest.X, rest.Y + 0.6, rest.Z)
+			elseif role == "Arm" then
+				-- Shoulder: top of the arm. Swings opposite to the leg on its side.
+				e.Pivot = Vector3.new(rest.X, rest.Y + p.Size.Y * 0.4, rest.Z)
+				e.Phase = if rest.X >= 0 then math.pi else 0
+			elseif role == "Flame" then
+				e.Pivot = (rest * CFrame.new(0, -p.Size.Y * 0.5, 0)).Position
+				e.Phase = rest.X * 3.1 + rest.Z * 1.7
 			end
 			table.insert(entries, e)
 		end
@@ -1427,6 +1615,15 @@ function MonsterVisuals.AnimatePose(model: Model, t: number, move: number)
 		elseif role == "Tentacle" then
 			local sw = math.sin(t * 2.2 + e.Rest.X * 3 + e.Rest.Z * 2) * 0.3
 			p.CFrame = pivot * about(e.Pivot, CFrame.Angles(sw, 0, sw * 0.5), e.Rest)
+		elseif role == "Arm" then
+			local a = math.sin(t * 11 + e.Phase) * 0.7 * move + math.sin(t * 1.6 + s) * 0.06
+			p.CFrame = pivot * about(e.Pivot, CFrame.Angles(a, 0, 0), e.Rest)
+		elseif role == "Flame" then
+			-- Flicker: stretch up and down from the base, with a little lick sideways.
+			local k = 1 + math.sin(t * 9 + e.Phase) * 0.12 + math.sin(t * 15.3 + e.Phase * 2) * 0.06
+			p.Size = Vector3.new(e.Size.X, e.Size.Y * k, e.Size.Z)
+			local lick = CFrame.Angles(0, 0, math.sin(t * 5 + e.Phase) * 0.12)
+			p.CFrame = pivot * about(e.Pivot, lick, e.Rest * CFrame.new(0, e.Size.Y * (k - 1) / 2, 0))
 		elseif role == "Puff" then
 			p.CFrame = pivot * CFrame.new(0, math.sin(t * 2.5 + e.Rest.X * 3) * 0.08, 0) * e.Rest
 		elseif role == "Blink" then

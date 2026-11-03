@@ -59,12 +59,12 @@ return function(t)
 		local p, d = newPlayer()
 		d.Coins = 10000
 		local s = start(p, "Mossling")
-		t.eq(d.Incubation.EndsAt - d.Incubation.StartedAt, Config.IncubationSeconds, "base")
+		t.eq(d.Incubations[1].EndsAt - d.Incubations[1].StartedAt, Config.IncubationSeconds, "base")
 		clock += 100
 		incubation:Claim(p, s.Incubation.OpId)
 		d.Upgrades.ImprovedIncubator = 3
 		start(p, "Mossling")
-		t.eq(d.Incubation.EndsAt - d.Incubation.StartedAt, Config.IncubationSeconds - 3, "level 3")
+		t.eq(d.Incubations[1].EndsAt - d.Incubations[1].StartedAt, Config.IncubationSeconds - 3, "level 3")
 		PlayerData._ForgetForTests(p)
 	end)
 
@@ -108,7 +108,7 @@ return function(t)
 		for _ = 1, n do
 			local r = start(p, "Mossling", "VerdantMeadows", { "Dewdrop" })
 			kept += #r.Recycled
-			d.Incubation = nil
+			table.clear(d.Incubations)
 			d.Inventory.Dewdrop = 999
 		end
 		local se = math.sqrt(0.2 * 0.8 / n)
@@ -144,7 +144,7 @@ return function(t)
 		clock += 100
 		local c = incubation:Claim(p, s.Incubation.OpId)
 		t.ok(c.AutoEquipped, "first monster auto-equipped")
-		t.eq(d.Equipped, c.Record.MonsterId, "equipped id")
+		t.eq(d.Equipped[1], c.Record.MonsterId, "equipped id")
 		local newCount = #c.NewMutations + 1
 		t.eq(c.ResearchPoints, math.floor(c.Record.Stats.ResearchValue * Progression.RPPerResearchValue) + newCount * Progression.RPPerDiscovery, "RP formula")
 		t.eq(d.ResearchPoints, c.ResearchPoints, "RP saved")
@@ -152,7 +152,7 @@ return function(t)
 		clock += 100
 		local c2 = incubation:Claim(p, s2.Incubation.OpId)
 		t.ok(not c2.AutoEquipped, "second monster does not steal the slot")
-		t.eq(d.Equipped, c.Record.MonsterId, "still the first")
+		t.eq(#d.Equipped, 1, "still only the first")
 		PlayerData._ForgetForTests(p)
 	end)
 
@@ -220,5 +220,89 @@ return function(t)
 			t.ok(math.abs(obs - p) <= 4 * se + 1e-9, case[3])
 			task.wait()
 		end
+	end)
+
+	t.it("bulk sell: only unlocked, unequipped monsters up to the tier; preview changes nothing", function()
+		local p, d = newPlayer()
+		local tiers = { 1, 1, 2, 3, 4, 1, 2 }
+		local ids = {}
+		for i, tier in tiers do
+			local rec = generation:Generate(p.UserId, { SpeciesId = "Mossling", BiomeId = "VerdantMeadows" }, Random.new(500 + i))
+			rec.RarityTier = tier
+			d.Monsters[rec.MonsterId] = rec
+			ids[i] = rec.MonsterId
+		end
+		d.Locked[ids[2]] = true
+		d.Equipped = { ids[6] }
+		d.Coins = 0
+		local function owned()
+			local n = 0
+			for _ in d.Monsters do
+				n += 1
+			end
+			return n
+		end
+		local pre = economy:SellBulk(p, 2, true)
+		t.ok(pre.Ok and pre.Preview, "preview ok")
+		-- Sellable at <= Uncommon: #1 (C), #3 (U), #7 (U); #2 locked, #6 equipped.
+		t.eq(pre.Count, 3, "preview count")
+		t.eq(pre.Coins, Config.SellValue[1] + Config.SellValue[2] * 2, "preview value")
+		t.eq(owned(), 7, "preview sells nothing")
+		t.eq(d.Coins, 0, "preview pays nothing")
+		local r = economy:SellBulk(p, 2)
+		t.ok(r.Ok and r.Count == 3 and r.Coins == pre.Coins, "sold what the preview said")
+		t.eq(d.Coins, pre.Coins, "paid once")
+		t.ok(d.Monsters[ids[2]] and d.Monsters[ids[6]] and d.Monsters[ids[4]] and d.Monsters[ids[5]], "kept locked, equipped, Rare, Epic")
+		t.eq(economy:SellBulk(p, 2).Count, 0, "nothing left to sell")
+		t.eq(economy:SellBulk(p, 4).Error, "BadRequest", "never above Rare")
+		t.eq(economy:SellBulk(p, 1.5).Error, "BadRequest", "integer tier")
+		t.eq(economy:SellBulk(p, "1").Error, "BadRequest", "number tier")
+		PlayerData._ForgetForTests(p)
+	end)
+
+	t.it("several pets: slots enforced, Companion Harness adds one, selling frees a slot", function()
+		local p, d = newPlayer()
+		local ids = {}
+		for i = 1, 5 do
+			local rec = generation:Generate(p.UserId, { SpeciesId = "Mossling", BiomeId = "VerdantMeadows" }, Random.new(900 + i))
+			d.Monsters[rec.MonsterId] = rec
+			ids[i] = rec.MonsterId
+		end
+		for i = 1, Config.PetSlots do
+			t.ok(economy:Equip(p, ids[i]).Ok, "equip " .. i)
+		end
+		t.ok(economy:Equip(p, ids[1]).Ok and #d.Equipped == Config.PetSlots, "re-equipping is a no-op")
+		t.eq(economy:Equip(p, ids[4]).Error, "PetSlotsFull", "slots full")
+		d.Upgrades.CompanionHarness = 1
+		t.ok(economy:Equip(p, ids[4]).Ok, "harness adds a slot")
+		t.ok(economy:Equip(p, ids[2], false).Ok and not table.find(d.Equipped, ids[2]), "unequip one")
+		t.eq(d.Equipped[1], ids[1], "slot order kept")
+		t.eq(economy:Equip(p, ids[5], "yes").Error, "BadRequest", "flag must be boolean")
+		t.eq(economy:Equip(p, "nope").Error, "NotOwned", "only owned monsters")
+		economy:Sell(p, ids[1])
+		t.ok(not table.find(d.Equipped, ids[1]), "sold pet leaves its slot")
+		t.ok(economy:Equip(p, nil).Ok and #d.Equipped == 0, "nil unequips all")
+		PlayerData._ForgetForTests(p)
+	end)
+
+	t.it("egg slots: more eggs at once as you level up; each claims on its own", function()
+		local p, d = newPlayer()
+		d.Coins = 100000
+		t.eq(ProgressionService.EggSlots(d), 1, "one slot at level 1")
+		local a = start(p, "Mossling")
+		t.ok(a.Ok, "first egg")
+		t.eq(start(p, "Mossling").Error, "ChamberBusy", "second egg needs a slot")
+		d.Level = Config.EggSlotLevels[2]
+		t.eq(ProgressionService.EggSlots(d), 2, "second slot")
+		local b = start(p, "Pebbleback")
+		t.ok(b.Ok and #b.Incubations == 2, "two eggs at once")
+		t.ok(a.Incubation.OpId ~= b.Incubation.OpId, "separate ops")
+		clock += 100
+		local cb = incubation:Claim(p, b.Incubation.OpId)
+		t.ok(cb.Ok and cb.Record.SpeciesId == "Pebbleback", "claim the second first")
+		t.eq(#d.Incubations, 1, "one egg left")
+		t.ok(incubation:Claim(p, a.Incubation.OpId).Ok, "then the first")
+		t.eq(#d.Incubations, 0, "chamber empty")
+		PlayerData._ForgetForTests(p)
 	end)
 end

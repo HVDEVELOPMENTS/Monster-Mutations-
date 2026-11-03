@@ -11,7 +11,8 @@ local Config = require(ReplicatedStorage.MonsterFactory.Shared.Config)
 
 local PlayerDataService = {}
 
-PlayerDataService.SCHEMA_VERSION = 1
+PlayerDataService.SCHEMA_VERSION = 3
+local MAX_EQUIPPED = 10 -- sanity cap; the real limit is ProgressionService.PetSlots
 PlayerDataService.STORE_NAME = "MonsterFactory_PlayerData_v1"
 PlayerDataService.AUTOSAVE_SECONDS = 60
 PlayerDataService.LOCK_STALE_SECONDS = 300
@@ -44,12 +45,13 @@ local function defaultData()
 		Level = 1,
 		Monsters = {}, -- [MonsterId] = record
 		Locked = {}, -- [MonsterId] = true (protected from selling)
+		Equipped = {}, -- { MonsterId } following the player, in slot order
 		Inventory = inv, -- [MaterialId] = count
 		UnlockedBiomes = { VerdantMeadows = true },
 		Discoveries = { Species = {}, Mutations = {} }, -- [id] = first-discovery timestamp
 		Unseen = {}, -- ["Species:X" | "Mutation:X"] = true  (drives NEW badges)
 		Milestones = {}, -- [MilestoneId] = timestamp
-		Incubation = nil, -- { OpId, RequestId, SpeciesId, BiomeId, Catalysts, StartedAt, EndsAt, Record }
+		Incubations = {}, -- { { OpId, RequestId, SpeciesId, BiomeId, Catalysts, StartedAt, EndsAt, Record } }, one per egg slot in use
 		LastClaim = nil, -- { OpId, Response }  (idempotent re-claims)
 		RecentStarts = {}, -- { { RequestId, OpId } } last few, for idempotent starts
 		PityCounter = 0,
@@ -60,6 +62,12 @@ local function defaultData()
 		Upgrades = {}, -- [UpgradeId] = level
 		GatherCooldowns = {}, -- [NodeId] = last gather (unix time)
 		Quarantine = {}, -- invalid records kept for support, never auto-deleted
+		Battles = { Wins = 0, Losses = 0 },
+		TrainerWins = {}, -- [TrainerId] = unix time of the last win (reward cooldown)
+		Badges = {}, -- [BiomeId] = when its boss trainer was first beaten
+		TutorialRewarded = false, -- Getting Started reward paid (Shared/Tutorial)
+		Daily = { Streak = 0, LastDay = -1 }, -- daily reward calendar (Shared/Rewards)
+		Quests = { Day = -1, Progress = {}, Claimed = {} }, -- today's quest progress
 	}
 end
 
@@ -73,7 +81,15 @@ function PlayerDataService.Migrate(data: any)
 	if type(data) ~= "table" then
 		return defaults
 	end
-	-- Future migrations: if data.V == 1 then ... data.V = 2 end
+	-- v1 -> v2: one equipped monster id became a list of them.
+	if type(data.Equipped) == "string" then
+		data.Equipped = { data.Equipped }
+	end
+	-- v2 -> v3: one incubation became a list (several eggs at once).
+	if type(data.Incubations) ~= "table" then
+		data.Incubations = if type(data.Incubation) == "table" then { data.Incubation } else {}
+	end
+	data.Incubation = nil
 	for k, v in defaults do
 		if data[k] == nil then
 			data[k] = v
@@ -116,12 +132,26 @@ function PlayerDataService.Migrate(data: any)
 				data.Monsters[id] = nil
 			end
 		end
-		if data.Incubation and not (type(data.Incubation) == "table" and generation:ValidateRecord(data.Incubation.Record)) then
-			warn("[PlayerData] quarantining invalid incubation")
-			data.Quarantine["incubation_" .. os.time()] = data.Incubation
-			data.Incubation = nil
+		for i = #data.Incubations, 1, -1 do
+			local inc = data.Incubations[i]
+			if not (type(inc) == "table" and type(inc.OpId) == "string" and generation:ValidateRecord(inc.Record)) then
+				warn("[PlayerData] quarantining invalid incubation")
+				data.Quarantine["incubation_" .. os.time() .. "_" .. i] = inc
+				table.remove(data.Incubations, i)
+			end
 		end
 	end
+	-- Equipped: owned, unique ids only (sold or quarantined monsters drop out).
+	local equipped, seen = {}, {}
+	if type(data.Equipped) == "table" then
+		for _, id in data.Equipped do
+			if type(id) == "string" and data.Monsters[id] and not seen[id] and #equipped < MAX_EQUIPPED then
+				seen[id] = true
+				table.insert(equipped, id)
+			end
+		end
+	end
+	data.Equipped = equipped
 	data.V = PlayerDataService.SCHEMA_VERSION
 	return data
 end

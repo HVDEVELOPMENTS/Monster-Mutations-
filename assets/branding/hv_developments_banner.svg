@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1440" viewBox="0 0 2560 1440">
+  <!-- YouTube safe area (visible on every device): 1546x423 centred, x 507-2053, y 508-931 -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="65%">
+      <stop offset="0" stop-color="#2a2f7a"/>
+      <stop offset="0.5" stop-color="#14164a"/>
+      <stop offset="1" stop-color="#05061a"/>
+    </radialGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00e5ff"/>
+      <stop offset="0.5" stop-color="#3d7bff"/>
+      <stop offset="1" stop-color="#a24bff"/>
+    </linearGradient>
+    <linearGradient id="tileEdge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0090b0"/>
+      <stop offset="1" stop-color="#5a1fa8"/>
+    </linearGradient>
+    <linearGradient id="letters" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d6e4ff"/>
+    </linearGradient>
+    <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7ef2ff"/>
+      <stop offset="0.5" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d4b0ff"/>
+    </linearGradient>
+    <linearGradient id="banner" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffb800"/>
+      <stop offset="1" stop-color="#ff7a00"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#4fd8ff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#4fd8ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#05061a" stop-opacity="0"/>
+      <stop offset="1" stop-color="#05061a" stop-opacity="0.9"/>
+    </linearGradient>
+    <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0H0V64" fill="none" stroke="#6f7dff" stroke-opacity="0.12" stroke-width="3"/>
+    </pattern>
+  </defs>
+
+  <!-- background -->
+  <rect width="2560" height="1440" fill="url(#bg)"/>
+  <rect width="2560" height="1440" fill="url(#grid)"/>
+  <ellipse cx="1280" cy="720" rx="1100" ry="520" fill="url(#glow)"/>
+
+  <!-- block skyline (bottom, decorative only) -->
+  <g opacity="0.55">
+    <rect x="40" y="1130" width="160" height="320" rx="18" fill="#3d7bff"/>
+    <rect x="220" y="1210" width="130" height="240" rx="16" fill="#a24bff"/>
+    <rect x="370" y="1080" width="110" height="370" rx="14" fill="#00b8d4"/>
+    <rect x="2080" y="1100" width="130" height="350" rx="16" fill="#a24bff"/>
+    <rect x="2230" y="1180" width="150" height="270" rx="18" fill="#3d7bff"/>
+    <rect x="2400" y="1060" width="130" height="390" rx="16" fill="#00b8d4"/>
+  </g>
+  <rect y="1000" width="2560" height="440" fill="url(#floor)"/>
+
+  <!-- floating blocks -->
+  <g opacity="0.9">
+    <rect x="300" y="300" width="110" height="110" rx="20" fill="#00e5ff" transform="rotate(-18 355 355)"/>
+    <rect x="2160" y="260" width="90" height="90" rx="16" fill="#a24bff" transform="rotate(22 2205 305)"/>
+    <rect x="160" y="760" width="70" height="70" rx="12" fill="#ffb800" transform="rotate(14 195 795)"/>
+    <rect x="2330" y="700" width="80" height="80" rx="14" fill="#3d7bff" transform="rotate(-24 2370 740)"/>
+    <rect x="720" y="280" width="50" height="50" rx="10" fill="#3d7bff" transform="rotate(30 745 305)"/>
+    <rect x="1800" y="1060" width="60" height="60" rx="10" fill="#00e5ff" transform="rotate(-10 1830 1090)"/>
+    <rect x="1640" y="250" width="44" height="44" rx="8" fill="#ffb800" transform="rotate(18 1662 272)"/>
+    <rect x="860" y="1080" width="48" height="48" rx="9" fill="#a24bff" transform="rotate(-28 884 1104)"/>
+  </g>
+  <!-- code brackets, decorative -->
+  <g font-family="Consolas, monospace" font-weight="700" fill="#7ef2ff" opacity="0.18">
+    <text x="90" y="560" font-size="220">&lt;/&gt;</text>
+    <text x="2110" y="560" font-size="220">{ }</text>
+  </g>
+
+  <!-- ===== safe-area content ===== -->
+  <!-- HV tile logo -->
+  <g transform="translate(560 560) scale(0.8)">
+    <g transform="rotate(-10 200 200)">
+      <rect x="0" y="18" width="400" height="400" rx="56" fill="url(#tileEdge)"/>
+      <rect x="0" y="0" width="400" height="400" rx="56" fill="url(#tile)"/>
+      <rect x="0" y="0" width="400" height="400" rx="56" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="6"/>
+      <path d="M56 0h288a56 56 0 0 1 56 56v40C270 155 130 65 0 125V56A56 56 0 0 1 56 0z" fill="#ffffff" opacity="0.14"/>
+    </g>
+    <g font-family="Arial Black, Segoe UI Black, Impact, sans-serif" font-weight="900" font-size="230" text-anchor="middle" letter-spacing="-6">
+      <text x="200" y="300" fill="#0b0d33" opacity="0.55">HV</text>
+      <text x="200" y="292" fill="#1a1c5c">HV</text>
+      <text x="200" y="286" fill="#1a1c5c">HV</text>
+      <text x="200" y="280" fill="url(#letters)" stroke="#0b0d33" stroke-width="8" paint-order="stroke">HV</text>
+    </g>
+  </g>
+
+  <!-- channel name -->
+  <g font-family="Arial Black, Segoe UI Black, sans-serif" font-weight="900">
+    <text x="960" y="712" font-size="150" textLength="1060" lengthAdjust="spacingAndGlyphs" fill="#0b0d33" opacity="0.6">HV DEVELOPMENTS</text>
+    <text x="960" y="700" font-size="150" textLength="1060" lengthAdjust="spacingAndGlyphs" fill="url(#title)" stroke="#0b0d33" stroke-width="12" paint-order="stroke">HV DEVELOPMENTS</text>
+  </g>
+
+  <!-- tagline pill -->
+  <rect x="960" y="760" width="760" height="100" rx="50" fill="#7a3a00"/>
+  <rect x="960" y="748" width="760" height="100" rx="50" fill="url(#banner)" stroke="#0b0d33" stroke-width="7"/>
+  <text x="1340" y="816" font-family="Arial Black, Segoe UI Black, sans-serif" font-weight="900" font-size="48" letter-spacing="3" text-anchor="middle" fill="#ffffff" stroke="#0b0d33" stroke-width="7" paint-order="stroke">ROBLOX GAME DEV</text>
+</svg>

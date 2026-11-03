@@ -229,8 +229,8 @@ return function(t)
 		d.UnlockedBiomes[FROST] = true
 		local s = start(p, "Mossling", FROST)
 		t.ok(s.Ok, "meadow species in tundra: " .. tostring(s.Error))
-		t.ok(d.Incubation.Events.Snowstorm, "snowstorm captured at start")
-		for _, id in d.Incubation.Record.ActiveMutations do
+		t.ok(d.Incubations[1].Events.Snowstorm, "snowstorm captured at start")
+		for _, id in d.Incubations[1].Record.ActiveMutations do
 			local allowed = M[id].AllowedBiomes
 			t.ok(allowed == nil or table.find(allowed, FROST), id .. " allowed in Frostfall")
 		end

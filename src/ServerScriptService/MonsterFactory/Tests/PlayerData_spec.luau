@@ -107,14 +107,14 @@ return function(t)
 		PlayerData.Load(p)
 		local s = incubation:Start(p, { RequestId = HttpService:GenerateGUID(false), SpeciesId = "Pebbleback", BiomeId = "VerdantMeadows" })
 		t.ok(s.Ok, "start")
-		local hiddenId = PlayerData.Get(p).Data.Incubation.Record.MonsterId
+		local hiddenId = PlayerData.Get(p).Data.Incubations[1].Record.MonsterId
 		local coinsAfterCharge = PlayerData.Get(p).Data.Coins
 		PlayerData.Release(p) -- player disconnects mid-incubation
 		clock += Config.IncubationSeconds + 60 -- time passes while offline
 		local p2 = fakePlayer(uid)
 		local d = PlayerData.Load(p2).Data
-		t.ok(d.Incubation, "incubation still there")
-		t.eq(d.Incubation.OpId, s.Incubation.OpId, "same op")
+		t.ok(d.Incubations[1], "incubation still there")
+		t.eq(d.Incubations[1].OpId, s.Incubation.OpId, "same op")
 		t.eq(d.Coins, coinsAfterCharge, "not refunded or double-charged")
 		local c = incubation:Claim(p2, s.Incubation.OpId)
 		t.ok(c.Ok, "claim after rejoin")
@@ -211,6 +211,7 @@ return function(t)
 			XP = -5,
 			Monsters = { [good.MonsterId] = good, ["bad-1"] = bad },
 			Inventory = { Dewdrop = 3, Junk = -2 },
+			Equipped = good.MonsterId, -- v1: a single id
 		})
 		local p = fakePlayer(uid)
 		local d = PlayerData.Load(p).Data
@@ -223,6 +224,8 @@ return function(t)
 		t.eq(d.Monsters["bad-1"], nil, "invalid monster removed from play")
 		t.ok(d.Quarantine["bad-1"], "invalid monster kept in quarantine")
 		t.ok(d.UnlockedBiomes.VerdantMeadows, "missing fields filled")
+		t.ok(#d.Equipped == 1 and d.Equipped[1] == good.MonsterId, "v1 equipped id became a list")
+		t.eq(PlayerData.Migrate({ Equipped = { "gone", 5 } }).Equipped[1], nil, "unowned/bad equipped ids dropped")
 		PlayerData.Release(p)
 		t.ok(store:Peek(key).Quarantine["bad-1"], "quarantine persisted")
 	end)

@@ -40,6 +40,10 @@ Run a single spec with `runner.Run({ root.Tests.Hybrid_spec })`. Specs are Modul
 
 `PlayerData_spec` covers saving against a fake DataStore. Real DataStores need "Enable Studio Access to API Services"; without it `PlayerDataService` runs memory-only and the HUD shows "Not saved (test)".
 
+## World props (Blender)
+
+`assets/models/meadow_props.py` (MeadowProps.fbx) and `biome_props.py` + `prop_kit.py` (BiomeProps.fbx, pieces `<Biome>-<Prop>_<Piece>`) build the scenery. After the user imports an FBX in Edit mode, run `normalise_props.luau` (set `IMPORT_NAME`) to fill `ServerStorage.WorldAssets.<Set>`; it also applies glow/glass looks by piece name and darkening tints (baked colours come out lighter in Roblox). Each `WorldBuilder` theme uses its set when present (`scatter`, `patches`, `mountainRanges` with the "Range" prop) and falls back to part decor otherwise. New SurfaceAppearances show blank for a few seconds until their texture loads.
+
 ## Rebuilding the world
 
 In the Edit datamodel:
@@ -49,7 +53,7 @@ local shared = game.ReplicatedStorage.MonsterFactory.Shared:Clone()
 require(game.ServerStorage.MonsterFactory.WorldBuilder:Clone()).Build(shared)
 ```
 
-Pass the cloned `Shared` folder so stale cached definitions aren't used. The build is seeded and deterministic; it clears and regenerates every zone model, `GatherNodes`, `ZoneGates` and the per-zone chambers (the meadow keeps the original `workspace.MutationChamber`).
+Pass the cloned `Shared` folder so stale cached definitions aren't used. The build is seeded and deterministic; it clears and regenerates every zone model, `GatherNodes`, `ZoneGates`, `BattleSpots` and the 12 `PlayerPods`. There are no shared chambers any more: players only use their own pod (Build removes any old `MutationChamber`), and the spawn faces the pods.
 
 ## Architecture
 
@@ -63,13 +67,21 @@ Pass the cloned `Shared` folder so stale cached definitions aren't used. The bui
 
 **Incubation** (`IncubationService`): the result is rolled and saved at **Start** (hidden from the client), revealed on **Claim**. Start is idempotent per client `RequestId`, Claim per `OpId` (`LastClaim` stored). Claim registers discoveries, XP, Research Points and auto-equips the first monster.
 
+Several eggs can incubate at once (`Incubations` list; slot n opens at `Config.EggSlotLevels[n]`); pity is counted at Start, not Claim. Each player gets a personal pod on the meadow's back wall (`PlayerPods`, assigned in `Main` via the pod `OwnerId` attribute); the client shows your eggs on its `EggSpot`s and enables only your pod's prompt. Up to `ProgressionService.PetSlots` monsters follow you (`Equipped` list, `EquippedPets` attribute).
+
+**Fusion** (`Shared/Fusion`, `FusionService`): two different species from the same home biome fuse into that biome's third species, rolled like an incubation there; both Rare+ inputs guarantee Rare+.
+
+**Battles** (`Shared/Battle`, `Shared/Trainers`, `BattleService`, client `BattleUI`): server-run turn-based fights against wild monsters (WorldBuilder `WildSpot`s, drawn client-side by `WildMonsters.client`) and NPC trainers (`TrainerSpot` stages; `Main` spawns their avatars). Your team is your equipped pets, otherwise your 3 strongest monsters. Stats come from species Power x unlock level x rarity tier. Winning pays coins and XP; trainers pay out again after a cooldown saved in `TrainerWins`. Player vs player: `ChallengePlayer`/`RespondChallenge` remotes; the shared battle has the challenger as side "P", and the other player's views/events are flipped; turns play when both choose or the `Tick` timer auto-picks; results are pushed over the `Battle` RemoteEvent (`BattleService.Push`). Solo Play can't test two players: use Studio Test > Clients and Servers.
+
+**Rewards** (`Shared/Rewards`, `RewardsService`, client `RewardsUI`, `TutorialUI`): a 7-day daily gift calendar (a missed day restarts the week, nothing is lost), 3 daily quests picked per player+day, progress counted via `RewardsService.Bump(data, kind)` from the incubation, fusion, battle and gather services; the Getting Started guide (`Shared/Tutorial`) pays once when all steps are done. Trainers can always be rematched; their coin prize has the cooldown (`b.Practice`). Kids are the audience: no paid randomness, no streak punishment.
+
 **Persistence** (`PlayerDataService`): versioned schema with `Migrate` (fills defaults, repairs bad values, quarantines invalid monsters rather than deleting), session locking via `UpdateAsync`, bounded retries, memory-only fallback. Monster records store genes and mutation ids only; visuals are derived.
 
 **Client** (`StarterPlayerScripts/MonsterFactoryClient`, with `UIKit` and `Reveal` child modules) builds the whole UI in code from server `StateChanged` pushes. `PetController` renders every player's equipped monster from the `EquippedPet` player attribute (client-side, no server cost); it stays hidden while the LocalPlayer attribute `RevealActive` is set.
 
 **Visuals** (`MonsterVisuals`): per-species `Rigs[...]` build part models facing **-Z** and return anchors (`Head`, `Back`, `Tail`, `Eyes`, `Body={Center,Radius}`, face style). Mutation looks come from bespoke `Builders[id]`, or generically from `Visual.Kind` via `KindBuilders` (Plates, Horns, Crown, Spikes, Core, Orbit, Veins, TailTip, Fins, Wings, Antlers, Shell, Cap, Tint, None), so new mutations usually need no code. Final scale = size gene x `Rarity.Scale`; tiers 2+ add a viewport-visible rarity aura. Animation roles come from part **names** (`ROLE_BY_NAME`: Foot/Leg/Paw = gait, Tail*, Ear, Wing, Tentacle, Eye = blink, ...), so name new rig parts accordingly. World-only particles/lights/trails come from `MonsterEffects` by element and tier.
 
-**World** (`ServerStorage/MonsterFactory/WorldBuilder`): one 180x180 zone per biome from `WorldLayout`, a theme table per biome (`Themes[biomeId]` with ground, walls, gather node type, `Decorate`), gates tagged `BiomeGate` and chambers tagged `MutationChamber` (CollectionService). Gate barriers open client-side per player; the server's trespass loop in `Main` sends players out of locked zones. Props with an `EventOnly` attribute are toggled by the client during that event.
+**World** (`ServerStorage/MonsterFactory/WorldBuilder`): one 180x180 zone per biome from `WorldLayout`, a theme table per biome (`Themes[biomeId]` with ground, walls, gather node type, `Decorate`), gates tagged `BiomeGate` (CollectionService) and the personal pods on the meadow wall. Gate barriers open client-side per player; the server's trespass loop in `Main` sends players out of locked zones. Props with an `EventOnly` attribute are toggled by the client during that event.
 
 ## Adding a biome
 

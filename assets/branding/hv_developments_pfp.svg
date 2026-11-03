@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="45%" r="70%">
+      <stop offset="0" stop-color="#2a2f7a"/>
+      <stop offset="0.55" stop-color="#14164a"/>
+      <stop offset="1" stop-color="#05061a"/>
+    </radialGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00e5ff"/>
+      <stop offset="0.5" stop-color="#3d7bff"/>
+      <stop offset="1" stop-color="#a24bff"/>
+    </linearGradient>
+    <linearGradient id="tileEdge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0090b0"/>
+      <stop offset="1" stop-color="#5a1fa8"/>
+    </linearGradient>
+    <linearGradient id="letters" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d6e4ff"/>
+    </linearGradient>
+    <linearGradient id="banner" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffb800"/>
+      <stop offset="1" stop-color="#ff7a00"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#4fd8ff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#4fd8ff" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#6f7dff" stroke-opacity="0.12" stroke-width="2"/>
+    </pattern>
+  </defs>
+
+  <!-- background -->
+  <rect width="800" height="800" fill="url(#bg)"/>
+  <rect width="800" height="800" fill="url(#grid)"/>
+  <circle cx="400" cy="360" r="330" fill="url(#glow)"/>
+
+  <!-- floating blocks -->
+  <g opacity="0.85">
+    <rect x="128" y="170" width="44" height="44" rx="8" fill="#00e5ff" transform="rotate(-18 150 192)"/>
+    <rect x="626" y="196" width="34" height="34" rx="7" fill="#a24bff" transform="rotate(22 643 213)"/>
+    <rect x="610" y="520" width="28" height="28" rx="6" fill="#ffb800" transform="rotate(-12 624 534)"/>
+    <rect x="150" y="530" width="24" height="24" rx="5" fill="#3d7bff" transform="rotate(30 162 542)"/>
+  </g>
+
+  <!-- tilted Roblox-style tile with 3D edge -->
+  <g transform="rotate(-12 400 345)">
+    <rect x="200" y="167" width="400" height="400" rx="56" fill="url(#tileEdge)"/>
+    <rect x="200" y="145" width="400" height="400" rx="56" fill="url(#tile)"/>
+    <rect x="200" y="145" width="400" height="400" rx="56" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="6"/>
+    <!-- shine -->
+    <path d="M256 145h288a56 56 0 0 1 56 56v40C470 300 330 210 200 270v-69a56 56 0 0 1 56-56z" fill="#ffffff" opacity="0.14"/>
+  </g>
+
+  <!-- HV with block extrusion -->
+  <g font-family="Arial Black, Segoe UI Black, Impact, sans-serif" font-weight="900" font-size="250" text-anchor="middle" letter-spacing="-6">
+    <text x="400" y="452" fill="#0b0d33" opacity="0.55">HV</text>
+    <text x="400" y="444" fill="#1a1c5c">HV</text>
+    <text x="400" y="438" fill="#1a1c5c">HV</text>
+    <text x="400" y="432" fill="#1a1c5c">HV</text>
+    <text x="400" y="426" fill="url(#letters)" stroke="#0b0d33" stroke-width="8" paint-order="stroke">HV</text>
+  </g>
+
+  <!-- DEVELOPMENTS banner -->
+  <g transform="rotate(-4 400 590)">
+    <rect x="146" y="552" width="508" height="88" rx="44" fill="#7a3a00"/>
+    <rect x="146" y="540" width="508" height="88" rx="44" fill="url(#banner)" stroke="#0b0d33" stroke-width="6"/>
+    <text x="400" y="602" font-family="Arial Black, Segoe UI Black, sans-serif" font-weight="900" font-size="46" letter-spacing="3" text-anchor="middle" fill="#ffffff" stroke="#0b0d33" stroke-width="7" paint-order="stroke">DEVELOPMENTS</text>
+  </g>
+</svg>

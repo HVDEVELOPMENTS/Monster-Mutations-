@@ -6,15 +6,18 @@
 
 local WorldLayout = {}
 
-WorldLayout.ZoneSize = 180 -- studs, square
+WorldLayout.ZoneSize = 720 -- studs, square
 WorldLayout.GateWidth = 24
+-- +Z edge of the first zone. Fixed so the spawn and main chamber stay just inside
+-- the meadow's entrance whatever ZoneSize is.
+WorldLayout.EntranceZ = 60
 
 export type Zone = { Biome: string, Center: Vector3, Spawn: Vector3 }
 
 WorldLayout.Zones = {} :: { Zone }
 local order = { "VerdantMeadows", "FrostfallTundra", "EmberpeakVolcano", "TidebreakCoast", "ThunderwildHighlands", "ToxicBloomSwamp" }
 for i, biome in order do
-	local center = Vector3.new(0, 0, -30 - (i - 1) * WorldLayout.ZoneSize)
+	local center = Vector3.new(0, 0, WorldLayout.EntranceZ - WorldLayout.ZoneSize / 2 - (i - 1) * WorldLayout.ZoneSize)
 	-- Spawn just inside the entrance (the +Z edge); the meadow uses the main spawn.
 	local spawn = if i == 1 then Vector3.new(0, 3, 6) else center + Vector3.new(0, 3, WorldLayout.ZoneSize / 2 - 14)
 	table.insert(WorldLayout.Zones, { Biome = biome, Center = center, Spawn = spawn })

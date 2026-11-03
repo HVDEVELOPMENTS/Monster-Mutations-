@@ -1,0 +1,32 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=block" rel="stylesheet">
+<style>html,body{margin:0;width:512px;height:512px;overflow:hidden;background:#000}svg{display:block}</style>
+<script src="art.js"></script>
+</head><body><div id="out"></div>
+<script>
+const s = 1.62;
+document.getElementById("out").innerHTML = `
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+<defs>
+	${rad("50%", "45%", "72%", [[0, "#fffbd0"], [0.22, "#ffd23a"], [0.5, "#ff7b2e"], [0.75, "#f0327f"], [1, "#6d1fd6"]], "bg")}
+	${lin(0, 0, 0, 1, [[0, "#fffbe0"], [0.45, "#ffe83a"], [1, "#ff9a1a"]], "txt")}
+	${rad("50%", "50%", "50%", [[0, "#000", 0], [0.7, "#000", 0], [1, "#2a0f45", 0.45]], "vig")}
+</defs>
+<rect width="512" height="512" fill="url(#bg)"/>
+${rays(256, 220, 18, 520, "#ffffff", 0.16, 0.08)}
+<rect width="512" height="512" fill="url(#vig)"/>
+${bubble(60, 110, 26, "#7ff6ff")}${bubble(450, 330, 20, "#ff9be0")}${bubble(70, 330, 14)}${bubble(452, 120, 14, "#b6ff7a")}
+${sparkle(110, 60, 20)}${sparkle(410, 60, 16)}${sparkle(470, 220, 12)}${sparkle(40, 230, 12)}
+<g transform="translate(${256 - 120 * s} ${232 - 140 * s}) scale(${s})">
+	${monster({ id: "m", body: ["#d8a4ff", "#9a4dff", "#5a1fb8"], belly: "#f3dcff", iris: "#2ee6ff", irisDark: "#0b6bd6",
+		mutation: "both", crystal: ["#6ff8ff", "#2a6dff"], aura: "#fff6a0" })}
+</g>
+${sparkle(150, 150, 14)}${sparkle(380, 165, 18)}
+<g transform="rotate(-6 256 452)">
+	<text x="256" y="478" text-anchor="middle" font-family="Luckiest Guy" font-size="92" fill="#2a0f45" stroke="#2a0f45" stroke-width="22" stroke-linejoin="round" transform="translate(0 7)">MUTATE!</text>
+	<text x="256" y="478" text-anchor="middle" font-family="Luckiest Guy" font-size="92" fill="url(#txt)" stroke="#2a0f45" stroke-width="14" stroke-linejoin="round" paint-order="stroke">MUTATE!</text>
+	<text x="256" y="478" text-anchor="middle" font-family="Luckiest Guy" font-size="92" fill="none" stroke="#fff" stroke-width="2" opacity="0.5">MUTATE!</text>
+</g>
+</svg>`;
+</script></body></html>

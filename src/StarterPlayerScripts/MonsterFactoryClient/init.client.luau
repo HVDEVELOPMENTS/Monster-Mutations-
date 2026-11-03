@@ -21,6 +21,10 @@ local Categories = require(Shared.Categories)
 local Config = require(Shared.Config)
 local UI = require(script.UIKit)
 local Reveal = require(script.Reveal)
+local FusionUI = require(script.FusionUI)
+local BattleUI = require(script.BattleUI)
+local TutorialUI = require(script.TutorialUI)
+local RewardsUI = require(script.RewardsUI)
 
 local function rf(name: string): RemoteFunction
 	return Remotes:WaitForChild(name) :: RemoteFunction
@@ -31,6 +35,7 @@ local R = {
 	StartIncubation = rf("StartIncubation"),
 	ClaimIncubation = rf("ClaimIncubation"),
 	SellMonster = rf("SellMonster"),
+	SellBulk = rf("SellBulk"),
 	ToggleLock = rf("ToggleLock"),
 	BuyCatalyst = rf("BuyCatalyst"),
 	MarkSeen = rf("MarkSeen"),
@@ -40,6 +45,14 @@ local R = {
 	BuyUpgrade = rf("BuyUpgrade"),
 	BuyResearch = rf("BuyResearch"),
 	TeleportToBiome = rf("TeleportToBiome"),
+	FuseMonsters = rf("FuseMonsters"),
+	StartBattle = rf("StartBattle"),
+	BattleAction = rf("BattleAction"),
+	ChallengePlayer = rf("ChallengePlayer"),
+	RespondChallenge = rf("RespondChallenge"),
+	ClaimTutorialReward = rf("ClaimTutorialReward"),
+	ClaimDaily = rf("ClaimDaily"),
+	ClaimQuest = rf("ClaimQuest"),
 }
 local NotifyEvent = Remotes:WaitForChild("Notify") :: RemoteEvent
 local StateChanged = Remotes:WaitForChild("StateChanged") :: RemoteEvent
@@ -47,7 +60,7 @@ local CoinsChanged = Remotes:WaitForChild("CoinsChanged") :: RemoteEvent
 
 local ERRORS = {
 	NotEnoughCoins = "Not enough coins!",
-	ChamberBusy = "The chamber is already incubating.",
+	ChamberBusy = "All your egg spots are busy! Level up to hatch more at once.",
 	MissingCatalyst = "You don't have that catalyst.",
 	SpeciesLocked = "Reach a higher level to unlock this species.",
 	BiomeLocked = "That biome is locked.",
@@ -65,23 +78,60 @@ local ERRORS = {
 	NotEnoughResearch = "Not enough Research Points.",
 	ResearchLocked = "Research the previous node first.",
 	TooFar = "Move closer to gather.",
+	PetSlotsFull = "All pet slots are full. Unequip one first (or get a Companion Harness).",
+	FuseSameSpecies = "Pick two DIFFERENT kinds of monster!",
+	FuseDifferentBiome = "Both monsters must come from the same place!",
+	NoMonsters = "Hatch a monster first, then come back to battle!",
+	WildGone = "That monster ran away. It will come back soon!",
+	TrainerResting = "This trainer is resting. Come back a bit later!",
+	NoBattle = "That battle is over.",
+	AlreadyBattling = "Finish your battle first!",
+	PlayerBusy = "That player is busy right now. Try again soon!",
+	PlayerHasNoMonsters = "That player has no monsters yet!",
+	ChallengeGone = "That challenge is over.",
+	AlreadyChose = "You already picked a move!",
+	NotFinished = "Finish all the steps first!",
+	AlreadyClaimed = "You already got this reward.",
 }
 local function showError(code: string?)
 	UI.Toast(ERRORS[code or ""] or ("Error: " .. tostring(code)), UI.Colors.Red)
 end
 
--- Equip a monster as your follower (nil = unequip). Used by cards, Index and reveal.
-local function equipMonster(monsterId: string?, displayName: string?)
-	local r = R.EquipMonster:InvokeServer(monsterId)
+local state = nil
+
+local function isPet(monsterId: string): boolean
+	return state ~= nil and table.find(state.Equipped, monsterId) ~= nil
+end
+
+-- First egg that has finished hatching, if any.
+local function readyEgg()
+	if not state then
+		return nil
+	end
+	local now = workspace:GetServerTimeNow()
+	for _, inc in state.Incubations do
+		if now >= inc.EndsAt then
+			return inc
+		end
+	end
+	return nil
+end
+
+local function freeEggSlots(): number
+	return if state then state.EggSlots - #state.Incubations else 0
+end
+
+-- Equip a monster as a follower (on = false unequips it). Used by cards, Index and reveal.
+local function equipMonster(monsterId: string, displayName: string?, on: boolean?)
+	local r = R.EquipMonster:InvokeServer(monsterId, on ~= false)
 	if r and r.Ok then
-		UI.Toast(if monsterId then ((displayName or "Your monster") .. " is following you!") else "Unequipped", UI.Colors.Purple)
+		local name = displayName or "Your monster"
+		UI.Toast(if on == false then (name .. " stopped following you") else (name .. " is following you!"), UI.Colors.Purple)
 		UI.Play("Pop", 1.1, 0.5)
 	else
 		showError(r and r.Error)
 	end
 end
-
-local state = nil
 local Events = require(Shared.Events)
 local HybridRecipes = require(Shared.HybridRecipes)
 local Progression = require(Shared.Progression)
@@ -128,6 +178,12 @@ local savePill = UI.new("Frame", { Name = "Save", LayoutOrder = 3, BackgroundCol
 UI.Corner(savePill, 16)
 UI.Stroke(savePill, 3)
 local saveLabel = UI.Label(savePill, "...", { Size = UDim2.new(1, -12, 1, -12), Position = UDim2.fromOffset(6, 6) })
+-- Badges from boss trainers (one per biome).
+local badgePill = UI.new("Frame", { Name = "Badges", LayoutOrder = 4, BackgroundColor3 = UI.Colors.Purple, Size = UDim2.fromOffset(120, 60), Parent = hud })
+UI.Corner(badgePill, 16)
+UI.Stroke(badgePill, 3)
+UI.Gloss(badgePill, UI.Colors.Purple)
+local badgeLabel = UI.Label(badgePill, "BADGES\n0/6", { Size = UDim2.new(1, -12, 1, -12), Position = UDim2.fromOffset(6, 6) })
 
 -- Biome event banner (schedule is public and shared with the server).
 local eventBanner = UI.new("Frame", {
@@ -155,19 +211,21 @@ UI.new("UIListLayout", { Padding = UDim.new(0, 10), VerticalAlignment = Enum.Ver
 local menuCount = 0
 local function menuButton(text: string, color: Color3)
 	menuCount += 1
-	local b = UI.Button(menu, text, color, { Name = text, LayoutOrder = menuCount, Size = UDim2.fromOffset(104, 72) })
+	local b = UI.Button(menu, text, color, { Name = text, LayoutOrder = menuCount, Size = UDim2.fromOffset(104, 62) })
 	local badge = UI.new("Frame", { BackgroundColor3 = UI.Colors.Red, Size = UDim2.fromOffset(34, 26), Position = UDim2.new(1, -24, 0, -10), Visible = false, ZIndex = 3, Parent = b })
 	UI.Corner(badge, 13)
 	UI.Stroke(badge, 2)
 	local badgeLabel = UI.Label(badge, "!", { ZIndex = 4 })
 	return b, badge, badgeLabel
 end
-local incubateBtn = menuButton("Incubate", UI.Colors.Green)
+local incubateBtn = menuButton("Hatch", UI.Colors.Green)
 local monstersBtn = menuButton("Monsters", UI.Colors.Blue)
-local indexBtn, indexBadge, indexBadgeLabel = menuButton("Index", UI.Colors.Purple)
+local indexBtn, indexBadge, indexBadgeLabel = menuButton("Collect", UI.Colors.Purple)
 local shopBtn = menuButton("Shop", UI.Colors.Orange)
-local labBtn = menuButton("Lab", UI.Colors.Blue)
-local teleportBtn = menuButton("Teleport", UI.Colors.Gold)
+local labBtn = menuButton("Upgrade", UI.Colors.Blue)
+local teleportBtn = menuButton("Travel", UI.Colors.Gold)
+local questsBtn, questsBadge, questsBadgeLabel = menuButton("Quests", UI.Colors.Green)
+local dailyBtn = menuButton("Daily", UI.Colors.Orange)
 
 -- Chamber widget (bottom) ------------------------------------------------
 local chamber = UI.new("Frame", {
@@ -180,20 +238,22 @@ local chamber = UI.new("Frame", {
 })
 UI.Corner(chamber, 18)
 UI.Stroke(chamber, 4)
-local chamberTitle = UI.Label(chamber, "Chamber empty", { Size = UDim2.new(1, -24, 0, 28), Position = UDim2.fromOffset(12, 8) })
+local chamberTitle = UI.Label(chamber, "Make a new monster!", { Size = UDim2.new(1, -132, 0, 28), Position = UDim2.fromOffset(12, 8) })
 local chamberBar = UI.Bar(chamber, UI.Colors.Green, { Size = UDim2.new(1, -24, 0, 16), Position = UDim2.fromOffset(12, 40) })
-local chamberBtn = UI.Button(chamber, "Incubate!", UI.Colors.Green, { Name = "ChamberButton", Size = UDim2.new(1, -24, 0, 40), Position = UDim2.fromOffset(12, 62) })
+local chamberBtn = UI.Button(chamber, "HATCH!", UI.Colors.Green, { Name = "ChamberButton", Size = UDim2.new(1, -24, 0, 40), Position = UDim2.fromOffset(12, 62) })
 local chamberBtnScale = chamberBtn:FindFirstChildOfClass("UIScale") :: UIScale
 local pityLabel = UI.Label(chamber, "", { Size = UDim2.new(1, -24, 0, 18), Position = UDim2.fromOffset(12, 108), TextColor3 = UI.Colors.Muted })
 
 -- Panels -----------------------------------------------------------------
-local incubatorPanel = UI.Panel(screen, "Mutation Chamber - Verdant Meadows", UDim2.new(0.86, 0, 0.8, 0), UI.Colors.Green)
+local incubatorPanel = UI.Panel(screen, "Hatch a Monster - Verdant Meadows", UDim2.new(0.86, 0, 0.8, 0), UI.Colors.Green)
 local monstersPanel = UI.Panel(screen, "My Monsters", UDim2.new(0.86, 0, 0.8, 0), UI.Colors.Blue)
-local indexPanel = UI.Panel(screen, "Collection Index", UDim2.new(0.86, 0, 0.8, 0), UI.Colors.Purple)
-local shopPanel = UI.Panel(screen, "Catalyst Shop", UDim2.new(0.6, 0, 0.7, 0), UI.Colors.Orange)
-local labPanel = UI.Panel(screen, "Research Lab", UDim2.new(0.86, 0, 0.8, 0), UI.Colors.Blue)
+local indexPanel = UI.Panel(screen, "My Collection", UDim2.new(0.86, 0, 0.8, 0), UI.Colors.Purple)
+local shopPanel = UI.Panel(screen, "Shop", UDim2.new(0.6, 0, 0.7, 0), UI.Colors.Orange)
+local labPanel = UI.Panel(screen, "Upgrades", UDim2.new(0.86, 0, 0.8, 0), UI.Colors.Blue)
 local teleportPanel = UI.Panel(screen, "Teleport", UDim2.new(0.4, 0, 0.6, 0), UI.Colors.Gold)
-local allPanels = { incubatorPanel, monstersPanel, indexPanel, shopPanel, labPanel, teleportPanel }
+local fusionPanel = UI.Panel(screen, "Monster Fusion", UDim2.new(0.86, 0, 0.8, 0), UI.Colors.Purple)
+local questsPanel = UI.Panel(screen, "Daily Quests", UDim2.new(0.6, 0, 0.62, 0), UI.Colors.Green)
+local allPanels = { incubatorPanel, monstersPanel, indexPanel, shopPanel, labPanel, teleportPanel, fusionPanel, questsPanel }
 local function openOnly(panel)
 	for _, p in allPanels do
 		if p ~= panel then
@@ -276,9 +336,11 @@ UI.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding 
 sectionTitle(leftCol, "2. Add catalysts (optional, max " .. Materials.MaxPerIncubation .. ")", Y0 + 246)
 local catalystRow = UI.new("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, Y0 + 274), Size = UDim2.new(1, 0, 0, 96), Parent = leftCol })
 UI.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder, Parent = catalystRow })
-local startBtn = UI.Button(leftCol, "Incubate", UI.Colors.Green, { Name = "StartButton", Size = UDim2.new(1, 0, 0, 60), Position = UDim2.fromOffset(0, Y0 + 380) })
+local startBtn = UI.Button(leftCol, "HATCH!", UI.Colors.Green, { Name = "StartButton", Size = UDim2.new(1, 0, 0, 60), Position = UDim2.fromOffset(0, Y0 + 380) })
 local incPityLabel = UI.Label(leftCol, "", { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, Y0 + 446), TextColor3 = UI.Colors.Gold })
 local skipToggle = UI.Button(leftCol, "Skip reveal: OFF", UI.Colors.Card, { Size = UDim2.fromOffset(200, 34), Position = UDim2.fromOffset(0, Y0 + 472) })
+-- Fusion lives in the chamber too: mix two monsters into a new one.
+local fuseOpenBtn = UI.Button(leftCol, "FUSE MONSTERS", UI.Colors.Purple, { Name = "FuseOpen", Size = UDim2.new(1, -210, 0, 34), Position = UDim2.fromOffset(210, Y0 + 472) })
 
 -- Shown instead of the chamber controls while the selected biome is locked.
 local lockedPane = UI.new("Frame", {
@@ -476,7 +538,7 @@ local function refreshIncubator()
 	end
 	local biome = Biomes.ById[BIOME]
 	local unlocked = state.UnlockedBiomes[BIOME] == true
-	titleLabel.Text = "Mutation Chamber - " .. biome.DisplayName
+	titleLabel.Text = "Hatch a Monster - " .. biome.DisplayName
 	for id, tab in biomeTabs do
 		local label = Biomes.ById[id].DisplayName
 		if not state.UnlockedBiomes[id] then
@@ -540,11 +602,11 @@ local function refreshIncubator()
 		lockedPreview.Text = "Unlocks: " .. table.concat(names, ", ") .. ", new mutations, catalysts" .. (if #evNames > 0 then (" and timed events (" .. table.concat(evNames, ", ") .. ")") else "") .. "."
 	end
 	local cost = Config.Species[selection.SpeciesId].Cost
-	local busy = state.Incubation ~= nil
+	local busy = freeEggSlots() <= 0
 	UI.SetDisabled(startBtn, busy)
-	UI.SetButtonText(startBtn, if busy then "Chamber busy" else string.format("Incubate  (%d coins)", cost))
+	UI.SetButtonText(startBtn, if busy then "All egg spots busy..." else string.format("HATCH!  (%d coins)", cost))
 	local left = state.PityThreshold - state.PityCounter
-	incPityLabel.Text = if left <= 1 then "Bad-luck protection: next incubation is guaranteed Rare+!" else string.format("Bad-luck protection: Rare+ guaranteed within %d incubations", left)
+	incPityLabel.Text = if left <= 1 then "Your next monster will be RARE or better!" else string.format("You will get a RARE monster in %d hatches or less!", left)
 	UI.SetButtonText(skipToggle, "Skip reveal: " .. (if state.Settings.SkipReveal then "ON" else "OFF"))
 end
 
@@ -621,7 +683,8 @@ incubatorPanel.OnOpen = function()
 	task.spawn(refreshOdds)
 end
 
-local function startIncubation(sel)
+-- quiet = started by Auto: no toast and the incubator panel is left alone.
+local function startIncubation(sel, quiet: boolean?)
 	local payload = {
 		RequestId = HttpService:GenerateGUID(false),
 		SpeciesId = sel.SpeciesId,
@@ -634,9 +697,15 @@ local function startIncubation(sel)
 		return false
 	end
 	lastSelection = sel
+	-- Show the new egg now instead of waiting for the next state push.
+	if state and resp.Incubations then
+		state.Incubations = resp.Incubations
+	end
 	UI.Play("Swoosh", 0.9, 0.5)
-	UI.Toast("Incubation started!", UI.Colors.Green)
-	incubatorPanel.Close()
+	if not quiet then
+		UI.Toast("Incubation started!", UI.Colors.Green)
+		incubatorPanel.Close()
+	end
 	return true
 end
 startBtn.Activated:Connect(function()
@@ -662,8 +731,44 @@ local monGrid = scrolling(monLeft, { Size = UDim2.new(1, 0, 1, -50) })
 UI.new("UIGridLayout", { CellSize = UDim2.fromOffset(150, 170), CellPadding = UDim2.fromOffset(8, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = monGrid })
 local pager = UI.new("Frame", { BackgroundTransparency = 1, Position = UDim2.new(0, 0, 1, -44), Size = UDim2.new(1, 0, 0, 44), Parent = monLeft })
 local prevBtn = UI.Button(pager, "<", UI.Colors.Card, { Size = UDim2.fromOffset(60, 40) })
-local pageLabel = UI.Label(pager, "", { Size = UDim2.new(1, -140, 0, 30), Position = UDim2.fromOffset(70, 5) })
+local pageLabel = UI.Label(pager, "", { Size = UDim2.new(1, -430, 0, 30), Position = UDim2.fromOffset(70, 5) })
 local nextBtn = UI.Button(pager, ">", UI.Colors.Card, { Size = UDim2.fromOffset(60, 40), Position = UDim2.new(1, -60, 0, 0) })
+-- Bulk sell: pick the highest rarity to clear, then tap twice (preview, confirm).
+-- Locked and equipped monsters are always kept; the server caps it at Rare.
+local bulkTier = 1
+local bulkConfirm: { Count: number, Coins: number }? = nil
+local bulkTierBtn = UI.Button(pager, "", UI.Colors.Card, { Name = "BulkTier", Size = UDim2.fromOffset(110, 40), Position = UDim2.new(1, -356, 0, 0) })
+local bulkSellBtn = UI.Button(pager, "", UI.Colors.Red, { Name = "BulkSell", Size = UDim2.fromOffset(170, 40), Position = UDim2.new(1, -238, 0, 0) })
+local function refreshBulk()
+	UI.SetButtonText(bulkTierBtn, "Up to " .. Rarity.Get(bulkTier).Name)
+	UI.SetButtonText(bulkSellBtn, if bulkConfirm then string.format("Sell %d for %s?", bulkConfirm.Count, UI.FormatNumber(bulkConfirm.Coins)) else "Sell all")
+end
+refreshBulk()
+bulkTierBtn.Activated:Connect(function()
+	bulkTier = bulkTier % 3 + 1
+	bulkConfirm = nil
+	UI.Play("Pop", 1.2, 0.3)
+	refreshBulk()
+end)
+bulkSellBtn.Activated:Connect(function()
+	local confirm = bulkConfirm
+	local r = R.SellBulk:InvokeServer(bulkTier, confirm == nil)
+	bulkConfirm = nil
+	if not r or not r.Ok then
+		showError(r and r.Error)
+	elseif r.Preview then
+		if r.Count == 0 then
+			UI.Toast("Nothing to sell (locked and equipped monsters are kept).", UI.Colors.Orange)
+		else
+			bulkConfirm = { Count = r.Count, Coins = r.Coins }
+		end
+	elseif r.Count > 0 then
+		UI.FloatText(coinPill, "+" .. UI.FormatNumber(r.Coins), UI.Colors.Gold)
+		UI.Toast(string.format("Sold %d monsters for %s coins.", r.Count, UI.FormatNumber(r.Coins)), UI.Colors.Gold)
+		UI.Play("Pop", 0.9, 0.5)
+	end
+	refreshBulk()
+end)
 local inspect = UI.new("Frame", { BackgroundColor3 = UI.Colors.PanelDark, Position = UDim2.fromScale(0.62, 0), Size = UDim2.new(0.38, 0, 1, 0), Parent = monContent })
 UI.Corner(inspect, 14)
 
@@ -719,12 +824,13 @@ local function refreshInspect()
 		UI.Label(mutList, string.format("%s %s  [%s, %s]", def.Glyph, m.DisplayName, m.Category, def.Name), { Size = UDim2.new(1, 0, 0, 20), TextColor3 = def.Color, TextXAlignment = Enum.TextXAlignment.Left })
 		UI.Label(mutList, "    " .. m.Description, { Size = UDim2.new(1, 0, 0, 16), TextColor3 = UI.Colors.Muted, TextXAlignment = Enum.TextXAlignment.Left })
 	end
-	local equipped = state.Equipped == rec.MonsterId
-	local equipBtn = UI.Button(inspect, if equipped then "Unequip (following you)" else "Equip - follows you around", if equipped then UI.Colors.Purple else UI.Colors.Blue, {
+	local equipped = isPet(rec.MonsterId)
+	local slotsText = string.format("%d/%d", #state.Equipped, state.PetSlots)
+	local equipBtn = UI.Button(inspect, if equipped then ("Unequip (pets " .. slotsText .. ")") else ("Equip - follows you (pets " .. slotsText .. ")"), if equipped then UI.Colors.Purple else UI.Colors.Blue, {
 		Name = "EquipButton", Size = UDim2.new(1, -20, 0, 44), Position = UDim2.new(0, 10, 1, -106),
 	})
 	equipBtn.Activated:Connect(function()
-		equipMonster(if equipped then nil else rec.MonsterId, rec.DisplayName)
+		equipMonster(rec.MonsterId, rec.DisplayName, not equipped)
 	end)
 	local locked = state.Locked[rec.MonsterId] == true
 	local lockBtn = UI.Button(inspect, if locked then "Locked" else "Lock", if locked then UI.Colors.Gold else UI.Colors.Card, { Size = UDim2.new(0.4, -10, 0, 44), Position = UDim2.new(0, 10, 1, -54) })
@@ -785,9 +891,9 @@ local function refreshMonsters()
 		if state.Locked[rec.MonsterId] then
 			UI.Label(card, "LOCK", { Size = UDim2.fromOffset(44, 18), Position = UDim2.fromOffset(4, 4), TextColor3 = UI.Colors.Gold })
 		end
-		if state.Equipped == rec.MonsterId then
+		if isPet(rec.MonsterId) then
 			UI.Label(card, "PET", { Size = UDim2.fromOffset(40, 18), Position = UDim2.new(1, -44, 0, 4), TextColor3 = UI.Colors.Purple })
-		else
+		elseif #state.Equipped < state.PetSlots then
 			-- One-click equip right on the card.
 			local quick = UI.Button(card, "Equip", UI.Colors.Purple, { Name = "QuickEquip", Size = UDim2.fromOffset(58, 24), Position = UDim2.new(1, -62, 0, 4), ZIndex = 3 })
 			quick.Activated:Connect(function()
@@ -811,7 +917,11 @@ nextBtn.Activated:Connect(function()
 	monsterPage += 1
 	refreshMonsters()
 end)
-monstersPanel.OnOpen = refreshMonsters
+monstersPanel.OnOpen = function()
+	bulkConfirm = nil
+	refreshBulk()
+	refreshMonsters()
+end
 
 -- ===== Index =====
 local indexTab = "Species"
@@ -925,13 +1035,13 @@ local function refreshIndex()
 				end
 			end
 			if best then
-				local isPet = state.Equipped == best.MonsterId
-				local eq = UI.Button(card, if isPet then "Following" else "Equip best", UI.Colors.Purple, {
+				local following = isPet(best.MonsterId)
+				local eq = UI.Button(card, if following then "Following" else "Equip best", UI.Colors.Purple, {
 					Name = "EquipBest", Size = UDim2.fromOffset(100, 26), Position = UDim2.new(1, -104, 0, 4), ZIndex = 3,
 				})
-				UI.SetDisabled(eq, isPet)
+				UI.SetDisabled(eq, following)
 				eq.Activated:Connect(function()
-					if not isPet then
+					if not following then
 						equipMonster(best.MonsterId, best.DisplayName)
 					end
 				end)
@@ -1257,17 +1367,46 @@ end
 teleportPanel.OnOpen = refreshTeleport
 
 -- ===== Claim / reveal =====
+-- Auto: hatch when ready and restart the last incubation. Hatches below Epic just
+-- toast (Rare is too frequent to stop for); an Epic+ hatch pauses Auto and plays
+-- the full reveal.
+local AUTO_REVEAL_TIER = 4
+local autoOn = false
+local autoBtn = UI.Button(chamber, "Auto: Off", UI.Colors.Card, { Name = "AutoButton", Size = UDim2.fromOffset(96, 28), Position = UDim2.new(1, -108, 0, 6) })
+local function refreshAuto()
+	UI.SetButtonText(autoBtn, if autoOn then "Auto: On" else "Auto: Off")
+	autoBtn.BackgroundColor3 = if autoOn then UI.Colors.Green else UI.Colors.Card
+end
+local function setAuto(on: boolean, reason: string?)
+	autoOn = on
+	refreshAuto()
+	if reason then
+		UI.Toast(reason, UI.Colors.Orange)
+	end
+end
+
 local claiming = false
-local function claim()
-	if claiming or not state or not state.Incubation then
+local function claim(auto: boolean?)
+	local egg = readyEgg()
+	if claiming or not egg then
 		return
 	end
 	claiming = true
-	local resp = R.ClaimIncubation:InvokeServer(state.Incubation.OpId)
+	local resp = R.ClaimIncubation:InvokeServer(egg.OpId)
 	claiming = false
 	if not resp or not resp.Ok then
 		showError(resp and resp.Error)
+		if auto then
+			setAuto(false)
+		end
 		return
+	end
+	-- That egg is gone now; don't wait for the state push to show it.
+	for i, inc in state.Incubations do
+		if inc.OpId == egg.OpId then
+			table.remove(state.Incubations, i)
+			break
+		end
 	end
 	local function afterReveal()
 		if resp.AutoEquipped then
@@ -1285,6 +1424,15 @@ local function claim()
 	if (resp.ResearchPoints or 0) > 0 then
 		UI.FloatText(levelPill, "+" .. resp.ResearchPoints .. " RP", UI.Colors.Blue)
 	end
+	if auto then
+		local def = Rarity.Get(resp.Record.RarityTier)
+		if resp.Record.RarityTier < AUTO_REVEAL_TIER then
+			UI.Toast(string.format("Hatched %s (%s)", resp.Record.DisplayName, def.Name), def.Color:Lerp(Color3.new(0, 0, 0), 0.25))
+			afterReveal()
+			return
+		end
+		setAuto(false, "Auto paused - " .. def.Name .. " hatch!")
+	end
 	Reveal.Play(resp, {
 		Skip = state.Settings.SkipReveal,
 		OnEquip = if resp.AutoEquipped then nil else function()
@@ -1299,18 +1447,28 @@ local function claim()
 	})
 end
 
+autoBtn.Activated:Connect(function()
+	if autoOn then
+		setAuto(false)
+	elseif not lastSelection then
+		UI.Toast("Start an incubation first - Auto repeats your last one.", UI.Colors.Orange)
+	else
+		setAuto(true)
+		UI.Play("Pop", 1.2, 0.4)
+	end
+end)
+refreshAuto()
+
 chamberBtn.Activated:Connect(function()
 	if not state then
 		return
 	end
-	if state.Incubation then
-		if workspace:GetServerTimeNow() >= state.Incubation.EndsAt then
-			claim()
-		else
-			showError("NotReady")
-		end
-	else
+	if readyEgg() then
+		claim()
+	elseif freeEggSlots() > 0 then
 		openOnly(incubatorPanel)
+	else
+		showError("NotReady")
 	end
 end)
 
@@ -1331,6 +1489,11 @@ end
 
 local function refreshHud()
 	setCoins(state.Coins, state.IncomePerSecond)
+	local badges = 0
+	for _ in state.Badges or {} do
+		badges += 1
+	end
+	badgeLabel.Text = string.format("BADGES\n%d/%d", badges, #Biomes.List)
 	levelLabel.Text = "Level " .. state.Level
 	xpBar.Set(state.XP / state.XPToNext, true)
 	if not state.SavingEnabled then
@@ -1353,8 +1516,60 @@ local function refreshHud()
 	indexBadge.Visible = unseen > 0
 	indexBadgeLabel.Text = tostring(unseen)
 	local left = state.PityThreshold - state.PityCounter
-	pityLabel.Text = if left <= 1 then "Next incubation: Rare+ guaranteed!" else string.format("Rare+ guaranteed within %d", left)
+	pityLabel.Text = if left <= 1 then "Next one is RARE or better!" else string.format("A RARE monster in %d hatches or less!", left)
 end
+
+-- ===== Getting Started guide =====
+local tutorialApi = TutorialUI.Init({
+	Screen = screen,
+	R = R,
+	ShowError = showError,
+	Targets = { Chamber = chamberBtn, HatchMenu = incubateBtn },
+	IsBusy = function()
+		return BattleUI.Active or Reveal.Active or player:GetAttribute("RevealActive") == true
+	end,
+})
+
+-- ===== Daily rewards, quests, level-ups =====
+local rewardsApi = RewardsUI.Init({
+	Screen = screen,
+	R = R,
+	ShowError = showError,
+	CoinTarget = coinPill,
+	QuestsButton = questsBtn,
+	QuestsBadge = questsBadge,
+	QuestsBadgeLabel = questsBadgeLabel,
+	DailyButton = dailyBtn,
+	QuestsPanel = questsPanel,
+	OpenPanel = function(p)
+		openOnly(p)
+	end,
+	IsBusy = function()
+		return BattleUI.Active or Reveal.Active or player:GetAttribute("RevealActive") == true
+	end,
+	WelcomeOpen = function()
+		for _, d in screen:GetDescendants() do
+			if d:IsA("TextLabel") and d.Text == "Welcome!" then
+				return true
+			end
+		end
+		return false
+	end,
+})
+
+-- ===== Fusion (opened from the Hatch panel) =====
+local fusionApi = FusionUI.Init({
+	Panel = fusionPanel,
+	GetState = function()
+		return state
+	end,
+	R = R,
+	ShowError = showError,
+	Reveal = Reveal,
+})
+fuseOpenBtn.Activated:Connect(function()
+	openOnly(fusionPanel)
+end)
 
 local function applyState(s)
 	state = s
@@ -1377,6 +1592,9 @@ local function applyState(s)
 	if teleportPanel.IsOpen then
 		refreshTeleport()
 	end
+	fusionApi.Refresh()
+	tutorialApi.Update(s)
+	rewardsApi.Update(s)
 	applyGates()
 end
 
@@ -1441,43 +1659,45 @@ local function allActiveEvents(now: number)
 	return out
 end
 
--- ===== Egg in the world chamber (client-side visual; the result stays secret) =====
+-- ===== Eggs in your chamber (client-side visuals; results stay secret) =====
+-- Each egg sits on an EggSpot in the player's own pod (see WorldBuilder pods);
+-- without a pod the first egg falls back to the zone's shared chamber core.
 local RunService = game:GetService("RunService")
 local MonsterVisuals = require(Shared.MonsterVisuals)
-local worldEgg: Model? = nil
-local eggOpId: string? = nil
+local worldEggs: { [string]: Model } = {} -- [OpId] = egg model
 
--- The chamber model for a biome (every zone has one, tagged "MutationChamber").
-local function chamberCore(biomeId: string?): BasePart?
-	for _, ch in CollectionService:GetTagged("MutationChamber") do
-		if ch:GetAttribute("ChamberBiome") == biomeId then
-			return ch:FindFirstChild("Core") :: BasePart?
+-- The local player's pod (OwnerId attribute set by the server), if any.
+local function myPod(): Model?
+	for _, pod in CollectionService:GetTagged("PlayerPod") do
+		if pod:GetAttribute("OwnerId") == Players.LocalPlayer.UserId then
+			return pod :: Model
 		end
 	end
 	return nil
 end
 
-local eggCore: BasePart? = nil
-local function clearWorldEgg()
-	if worldEgg then
-		worldEgg:Destroy()
-		worldEgg = nil
+-- Where egg number `slot` stands in your pod (no pod yet: no world egg; the
+-- chamber widget still shows it).
+local function eggAnchor(slot: number): CFrame?
+	local pod = myPod()
+	local spot = pod and pod:FindFirstChild("EggSpot" .. slot) :: BasePart?
+	if spot then
+		-- Lift so the egg (3.1 tall) stands on the spot. Its spots and cracks face its
+		-- +Z; pods face -Z (toward the spawn), so turn it around.
+		return spot.CFrame * CFrame.new(0, 1.3, 0) * CFrame.Angles(0, math.pi, 0)
 	end
-	eggOpId = nil
-	if eggCore then
-		eggCore.Transparency = 0.2
-		eggCore = nil
+	return nil
+end
+
+local function destroyEgg(opId: string)
+	local m = worldEggs[opId]
+	if m then
+		m:Destroy()
+		worldEggs[opId] = nil
 	end
 end
 
-local function buildWorldEgg(inc)
-	clearWorldEgg()
-	local core = chamberCore(inc.BiomeId)
-	if not core then
-		return
-	end
-	eggCore = core
-	core.Transparency = 1
+local function buildWorldEgg(inc, at: CFrame)
 	local sp = Species.ById[inc.SpeciesId]
 	local spot = MonsterVisuals.Palettes[sp.Palettes[1]] or Color3.fromRGB(120, 200, 120)
 	local m = Instance.new("Model")
@@ -1498,15 +1718,15 @@ local function buildWorldEgg(inc)
 		p.Parent = m
 		return p
 	end
-	local egg = ep("Egg", Enum.PartType.Ball, Vector3.new(2.4, 3.1, 2.4), core.CFrame, Color3.fromRGB(250, 248, 240))
+	local egg = ep("Egg", Enum.PartType.Ball, Vector3.new(2.4, 3.1, 2.4), at, Color3.fromRGB(250, 248, 240))
 	m.PrimaryPart = egg
-	-- Spots and cracks face +Z, toward where players approach the chamber.
-	for i, d in { Vector3.new(0.7, 0.6, 0.85), Vector3.new(-0.8, 0.1, 0.7), Vector3.new(0.2, -0.7, 1.0), Vector3.new(-0.3, 1.0, 0.8), Vector3.new(0.9, -0.3, -0.6) } do
-		local pos = core.Position + d
-		ep("Spot", Enum.PartType.Ball, Vector3.new(0.55, 0.45, 0.2), CFrame.lookAt(pos, pos + (pos - core.Position)), spot)
+	-- Spots and cracks face the egg's +Z, toward where players approach.
+	for _, d in { Vector3.new(0.7, 0.6, 0.85), Vector3.new(-0.8, 0.1, 0.7), Vector3.new(0.2, -0.7, 1.0), Vector3.new(-0.3, 1.0, 0.8), Vector3.new(0.9, -0.3, -0.6) } do
+		local pos = at:PointToWorldSpace(d)
+		ep("Spot", Enum.PartType.Ball, Vector3.new(0.55, 0.45, 0.2), CFrame.lookAt(pos, pos + (pos - at.Position)), spot)
 	end
 	for i = 1, 4 do
-		local crack = ep("Crack", Enum.PartType.Block, Vector3.new(0.06, 0.7, 0.06), core.CFrame * CFrame.new((i - 2.5) * 0.35, 0.2 + (i % 2) * 0.3, 1.15) * CFrame.Angles(0, 0, (i % 2 == 0) and 0.5 or -0.5), Color3.fromRGB(40, 35, 30))
+		local crack = ep("Crack", Enum.PartType.Block, Vector3.new(0.06, 0.7, 0.06), at * CFrame.new((i - 2.5) * 0.35, 0.2 + (i % 2) * 0.3, 1.15) * CFrame.Angles(0, 0, (i % 2 == 0) and 0.5 or -0.5), Color3.fromRGB(40, 35, 30))
 		crack.Transparency = 1
 		crack:SetAttribute("Index", i)
 	end
@@ -1517,38 +1737,22 @@ local function buildWorldEgg(inc)
 	light.Parent = egg
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "ReadyTag"
-	bb.Size = UDim2.fromOffset(200, 50)
-	bb.StudsOffset = Vector3.new(0, 3.2, 0)
+	bb.Size = UDim2.fromOffset(160, 40)
+	bb.StudsOffset = Vector3.new(0, 2.6, 0)
 	bb.AlwaysOnTop = true
 	bb.Enabled = false
 	bb.Parent = egg
-	UI.Label(bb, "Ready to hatch!", { TextColor3 = UI.Colors.Gold })
+	UI.Label(bb, "Ready!", { TextColor3 = UI.Colors.Gold })
 	m.Parent = workspace
 	-- Rest pose of every part relative to the egg, so wobble moves them together.
 	for _, p in m:GetChildren() do
 		p:SetAttribute("Rest", egg.CFrame:ToObjectSpace(p.CFrame))
 	end
 	m:SetAttribute("Base", egg.CFrame)
-	worldEgg = m
-	eggOpId = inc.OpId
+	worldEggs[inc.OpId] = m
 end
 
-RunService.RenderStepped:Connect(function()
-	local inc = state and state.Incubation
-	if not inc then
-		if worldEgg then
-			clearWorldEgg()
-		end
-		return
-	end
-	if eggOpId ~= inc.OpId or not (worldEgg and worldEgg.Parent) then
-		buildWorldEgg(inc)
-	end
-	local egg = worldEgg
-	if not egg then
-		return
-	end
-	local now = workspace:GetServerTimeNow()
+local function animateEgg(egg: Model, inc, now: number)
 	local total = math.max(inc.EndsAt - inc.StartedAt, 1)
 	local progress = math.clamp(1 - (inc.EndsAt - now) / total, 0, 1)
 	local ready = progress >= 1
@@ -1575,7 +1779,123 @@ RunService.RenderStepped:Connect(function()
 	if tag then
 		tag.Enabled = ready
 	end
+end
+
+RunService.RenderStepped:Connect(function()
+	local eggs = if state then state.Incubations else {}
+	local live = {}
+	local now = workspace:GetServerTimeNow()
+	for slot, inc in eggs do
+		live[inc.OpId] = true
+		local egg = worldEggs[inc.OpId]
+		if not (egg and egg.Parent) then
+			local at = eggAnchor(slot)
+			if at then
+				buildWorldEgg(inc, at)
+				egg = worldEggs[inc.OpId]
+			end
+		end
+		if egg then
+			animateEgg(egg, inc, now)
+		end
+	end
+	for opId in worldEggs do
+		if not live[opId] then
+			destroyEgg(opId)
+		end
+	end
 end)
+
+-- Pod prompts: only your own pod's prompt is shown. It hatches a ready egg or
+-- opens the incubator.
+local claimFromPod: (() -> ())? = nil
+-- Your own pod is marked for you only: a gold outline and a bouncing sign.
+local myPodMarker: BillboardGui? = nil
+local myPodHighlight: Highlight? = nil
+local function markMyPod(pod: Model?)
+	if myPodMarker then
+		myPodMarker:Destroy()
+		myPodMarker = nil
+	end
+	if myPodHighlight then
+		myPodHighlight:Destroy()
+		myPodHighlight = nil
+	end
+	if not pod then
+		return
+	end
+	local h = Instance.new("Highlight")
+	h.FillTransparency = 1
+	h.OutlineColor = UI.Colors.Gold
+	h.DepthMode = Enum.HighlightDepthMode.Occluded
+	h.Adornee = pod
+	h.Parent = pod
+	myPodHighlight = h
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "YourChamberSign"
+	bb.Size = UDim2.fromOffset(260, 70)
+	bb.StudsOffset = Vector3.new(0, 17, 0)
+	bb.AlwaysOnTop = true
+	bb.MaxDistance = 250
+	bb.Adornee = pod.PrimaryPart
+	bb.Parent = pod
+	local pill = UI.new("Frame", { BackgroundColor3 = UI.Colors.Gold, Size = UDim2.fromScale(1, 1), Parent = bb })
+	UI.Corner(pill, 16)
+	UI.Stroke(pill, 4)
+	UI.Gloss(pill, UI.Colors.Gold)
+	UI.Label(pill, "YOUR CHAMBER!", { Font = UI.TitleFont, Size = UDim2.new(1, -16, 1, -12), Position = UDim2.fromOffset(8, 6) })
+	myPodMarker = bb
+	task.spawn(function()
+		while bb.Parent do
+			bb.StudsOffset = Vector3.new(0, 17 + math.abs(math.sin(os.clock() * 3)) * 1.2, 0)
+			task.wait(0.03)
+		end
+	end)
+end
+
+local function hookPod(pod: Instance)
+	-- Pods stream in whole (Atomic), but wait a moment in case the prompt lags.
+	local console = pod:WaitForChild("Console", 10)
+	local prompt = console and console:FindFirstChildWhichIsA("ProximityPrompt") or pod:FindFirstChildWhichIsA("ProximityPrompt", true)
+	if not prompt then
+		return
+	end
+	local function refresh()
+		local mine = pod:GetAttribute("OwnerId") == Players.LocalPlayer.UserId
+		prompt.Enabled = mine
+		if mine then
+			markMyPod(pod :: Model)
+		elseif myPodMarker and myPodMarker.Parent == pod then
+			markMyPod(nil)
+		end
+	end
+	-- "Open egg!" when one is ready, otherwise "Hatch".
+	task.spawn(function()
+		while pod.Parent do
+			if prompt.Enabled then
+				prompt.ActionText = if readyEgg() then "Open egg!" else "Hatch"
+			end
+			task.wait(0.3)
+		end
+	end)
+	pod:GetAttributeChangedSignal("OwnerId"):Connect(function()
+		refresh()
+		-- A newly assigned pod: rebuild eggs at its spots.
+		for opId in worldEggs do
+			destroyEgg(opId)
+		end
+	end)
+	refresh()
+	prompt.Triggered:Connect(function()
+		if claimFromPod then
+			claimFromPod()
+		end
+	end)
+end
+for _, pod in CollectionService:GetTagged("PlayerPod") do
+	task.spawn(hookPod, pod)
+end
+CollectionService:GetInstanceAddedSignal("PlayerPod"):Connect(hookPod)
 
 local function fmtTime(s: number): string
 	s = math.max(0, math.floor(s))
@@ -1645,70 +1965,304 @@ task.spawn(function()
 	end
 end)
 
--- Chamber widget ticker (countdown + pulsing REVEAL button).
+-- Chamber widget ticker (countdown + pulsing OPEN button) and the Auto loop.
+local autoBusy = false
+local function autoStep()
+	if not autoOn or autoBusy or claiming or Reveal.Active then
+		return
+	end
+	local ready = readyEgg()
+	if not ready and (freeEggSlots() <= 0 or not lastSelection) then
+		return
+	end
+	autoBusy = true
+	task.spawn(function()
+		if ready then
+			claim(true)
+		elseif not startIncubation(lastSelection, true) then
+			setAuto(false, "Auto stopped.")
+		end
+		autoBusy = false
+	end)
+end
 task.spawn(function()
 	local wasReady = false
 	while true do
 		task.wait(0.1)
 		if state then
-			local inc = state.Incubation
-			if not inc then
-				chamberTitle.Text = "Chamber empty"
-				chamberBar.Set(0)
-				UI.SetButtonText(chamberBtn, "Incubate!")
-				chamberBtnScale.Scale = 1
-				wasReady = false
+			autoStep()
+			local now = workspace:GetServerTimeNow()
+			local ready = readyEgg()
+			-- The egg closest to hatching.
+			local soonest = nil
+			for _, inc in state.Incubations do
+				if not soonest or inc.EndsAt < soonest.EndsAt then
+					soonest = inc
+				end
+			end
+			local count = if state.EggSlots > 1 then string.format("  (%d/%d eggs)", #state.Incubations, state.EggSlots) else ""
+			if ready then
+				chamberTitle.Text = Species.ById[ready.SpeciesId].DisplayName .. " is ready!" .. count
+				chamberBar.Set(1)
+				UI.SetButtonText(chamberBtn, "OPEN!")
+				if not wasReady then
+					wasReady = true
+					UI.Play("Pop", 1.4, 0.6)
+				end
+				chamberBtnScale.Scale = 1 + math.abs(math.sin(os.clock() * 4)) * 0.06
 			else
-				local now = workspace:GetServerTimeNow()
-				local total = math.max(inc.EndsAt - inc.StartedAt, 1)
-				local left = inc.EndsAt - now
-				local sp = Species.ById[inc.SpeciesId]
-				if left > 0 then
-					local where = if inc.BiomeId == "VerdantMeadows" then "" else (" in " .. Biomes.ById[inc.BiomeId].DisplayName)
-					chamberTitle.Text = string.format("Incubating %s%s...  %ds", sp.DisplayName, where, math.ceil(left))
-					chamberBar.Set(1 - left / total)
-					UI.SetButtonText(chamberBtn, "Incubating...")
-					wasReady = false
+				wasReady = false
+				if soonest then
+					local left = soonest.EndsAt - now
+					chamberTitle.Text = string.format("Hatching %s...  %ds%s", Species.ById[soonest.SpeciesId].DisplayName, math.ceil(left), count)
+					chamberBar.Set(1 - left / math.max(soonest.EndsAt - soonest.StartedAt, 1))
 				else
-					chamberTitle.Text = sp.DisplayName .. " is ready!"
-					chamberBar.Set(1)
-					UI.SetButtonText(chamberBtn, "REVEAL!")
-					if not wasReady then
-						wasReady = true
-						UI.Play("Pop", 1.4, 0.6)
-					end
-					chamberBtnScale.Scale = 1 + math.abs(math.sin(os.clock() * 4)) * 0.06
+					chamberTitle.Text = "Make a new monster!"
+					chamberBar.Set(0)
+				end
+				if freeEggSlots() > 0 then
+					UI.SetButtonText(chamberBtn, if soonest then "HATCH ANOTHER!" else "HATCH!")
+					-- Gentle "press me" pulse so young players always know the next step.
+					chamberBtnScale.Scale = 1 + math.abs(math.sin(os.clock() * 2.5)) * 0.04
+				else
+					UI.SetButtonText(chamberBtn, "Wait...")
+					chamberBtnScale.Scale = 1
 				end
 			end
 		end
 	end
 end)
 
--- Every zone's chamber: hatch a ready egg, or open the incubator set to that biome.
-local function hookChamber(model: Instance)
-	local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+-- ===== Battles: wild spots and trainers =====
+local battleApi
+local BattleRules = require(Shared.Battle)
+local TrainerDefs = require(Shared.Trainers)
+local lastWildSpot: string? = nil
+local function setFrozen(frozen: boolean)
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.WalkSpeed = if frozen then 0 else Config.WalkSpeed
+		hum.JumpPower = if frozen then 0 else 50
+	end
+end
+battleApi = BattleUI.Init({
+	Screen = screen,
+	R = R,
+	BadgeName = function(biomeId: string): string
+		local b = Biomes.ById[biomeId]
+		return if b then b.ShortName else biomeId
+	end,
+	ShowError = function(code: string?, resp: any?)
+		if code == "TrainerResting" and resp and resp.Seconds then
+			UI.Toast(string.format("This trainer is resting! Come back in %d:%02d", resp.Seconds // 60, resp.Seconds % 60), UI.Colors.Orange)
+		else
+			showError(code)
+		end
+	end,
+	OnEnd = function(resp)
+		setFrozen(false)
+		-- A beaten wild monster leaves its spot (for you) until it respawns.
+		if resp and resp.Result == "Win" and lastWildSpot then
+			for _, spot in CollectionService:GetTagged("WildSpot") do
+				if spot:GetAttribute("SpotId") == lastWildSpot then
+					spot:SetAttribute("HiddenUntil", workspace:GetServerTimeNow() + BattleRules.WildRespawnSeconds)
+				end
+			end
+		end
+		if resp and resp.Result == "Win" and (resp.LevelsGained or 0) > 0 then
+			UI.Toast("LEVEL UP! You are now level " .. resp.NewLevel, UI.Colors.Gold)
+		end
+	end,
+})
+local function startBattle(kind: string, id: string)
+	lastWildSpot = if kind == "Wild" then id else nil
+	for _, p in allPanels do
+		p.Close()
+	end
+	battleApi.Start(kind, id)
+	if BattleUI.Active then
+		setFrozen(true)
+	end
+end
+local function hookBattlePrompt(inst: Instance, kind: string, idAttr: string)
+	local prompt = inst:FindFirstChildWhichIsA("ProximityPrompt", true)
 	if not prompt then
 		return
 	end
-	prompt.ObjectText = "Mutation Chamber - " .. (Biomes.ById[model:GetAttribute("ChamberBiome") or ""] or Biomes.ById.VerdantMeadows).DisplayName
 	prompt.Triggered:Connect(function()
-		if state and state.Incubation and workspace:GetServerTimeNow() >= state.Incubation.EndsAt then
-			claim()
+		local id = inst:GetAttribute(idAttr)
+		if type(id) == "string" and not BattleUI.Active and not Reveal.Active then
+			startBattle(kind, id)
+		end
+	end)
+	-- Trainers show their coin prize, or when it comes back after a win.
+	local tr = kind == "Trainer" and TrainerDefs.ById[inst:GetAttribute(idAttr) or ""]
+	if tr then
+		task.spawn(function()
+			while inst.Parent do
+				local last = state and state.TrainerWins and state.TrainerWins[tr.Id]
+				local left = if last then BattleRules.TrainerCooldownSeconds - (workspace:GetServerTimeNow() - last) else 0
+				prompt.ObjectText = if left > 0
+					then string.format("Trainer %s - coins in %d:%02d", tr.DisplayName, left // 60, left % 60)
+					else string.format("Trainer %s - %d coins", tr.DisplayName, tr.Reward)
+				task.wait(1)
+			end
+		end)
+	end
+end
+for _, spot in CollectionService:GetTagged("WildSpot") do
+	hookBattlePrompt(spot, "Wild", "SpotId")
+end
+CollectionService:GetInstanceAddedSignal("WildSpot"):Connect(function(spot)
+	hookBattlePrompt(spot, "Wild", "SpotId")
+end)
+for _, npc in CollectionService:GetTagged("Trainer") do
+	hookBattlePrompt(npc, "Trainer", "TrainerId")
+end
+CollectionService:GetInstanceAddedSignal("Trainer"):Connect(function(npc)
+	task.defer(hookBattlePrompt, npc, "Trainer", "TrainerId")
+end)
+
+-- ===== Player vs player =====
+-- Walk up to another player and press "Battle!" to challenge them; they get a
+-- popup to accept. The battle itself runs through BattleUI (OnPush).
+local BattlePush = Remotes:WaitForChild("Battle") :: RemoteEvent
+
+local challengePopup = UI.new("Frame", {
+	Name = "ChallengePopup",
+	AnchorPoint = Vector2.new(0.5, 0),
+	BackgroundColor3 = UI.Colors.Panel,
+	Position = UDim2.new(0.5, 0, 0, 180),
+	Size = UDim2.fromOffset(440, 170),
+	Visible = false,
+	ZIndex = 30,
+	Parent = screen,
+})
+UI.Corner(challengePopup, 18)
+UI.Stroke(challengePopup, 5)
+UI.Gloss(challengePopup, UI.Colors.Panel)
+local challengeScale = UI.new("UIScale", { Parent = challengePopup })
+local challengeText = UI.Label(challengePopup, "", { Font = UI.TitleFont, Size = UDim2.new(1, -20, 0, 50), Position = UDim2.fromOffset(10, 10), ZIndex = 31 })
+local challengeBar = UI.Bar(challengePopup, UI.Colors.Gold, { Size = UDim2.new(1, -40, 0, 12), Position = UDim2.fromOffset(20, 66), ZIndex = 31 })
+local acceptBtn = UI.Button(challengePopup, "BATTLE!", UI.Colors.Green, { Size = UDim2.new(0.5, -25, 0, 58), Position = UDim2.fromOffset(20, 94), ZIndex = 31 })
+local declineBtn = UI.Button(challengePopup, "No thanks", UI.Colors.Red, { Size = UDim2.new(0.5, -25, 0, 58), Position = UDim2.new(0.5, 5, 0, 94), ZIndex = 31 })
+local pendingChallenge = nil -- { FromUserId, EndsAt }
+
+local function closeChallenge()
+	pendingChallenge = nil
+	challengePopup.Visible = false
+end
+local function answerChallenge(accept: boolean)
+	local c = pendingChallenge
+	closeChallenge()
+	if not c then
+		return
+	end
+	local r = R.RespondChallenge:InvokeServer(c.FromUserId, accept)
+	if not r or not r.Ok then
+		showError(r and r.Error)
+	end
+end
+acceptBtn.Activated:Connect(function()
+	answerChallenge(true)
+end)
+declineBtn.Activated:Connect(function()
+	answerChallenge(false)
+end)
+task.spawn(function()
+	while true do
+		task.wait(0.1)
+		local c = pendingChallenge
+		if c then
+			local left = c.EndsAt - os.clock()
+			challengeBar.Set(math.max(0, left / c.Seconds))
+			if left <= 0 then
+				closeChallenge()
+			end
+		end
+	end
+end)
+
+BattlePush.OnClientEvent:Connect(function(msg)
+	if type(msg) ~= "table" then
+		return
+	end
+	if msg.Kind == "Challenge" then
+		if BattleUI.Active or Reveal.Active then
+			return -- busy: it just times out
+		end
+		pendingChallenge = { FromUserId = msg.FromUserId, Seconds = msg.Seconds or 20, EndsAt = os.clock() + (msg.Seconds or 20) }
+		challengeText.Text = msg.FromName .. " wants to battle!"
+		challengePopup.Visible = true
+		challengeScale.Scale = 0.4
+		TweenService:Create(challengeScale, TweenInfo.new(0.3, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+		UI.Play("Pop", 1.2, 0.7)
+	elseif msg.Kind == "Declined" then
+		UI.Toast(msg.Name .. " said no thanks this time.", UI.Colors.Orange)
+	elseif msg.Kind == "Start" then
+		closeChallenge()
+		for _, p in allPanels do
+			p.Close()
+		end
+		lastWildSpot = nil
+		battleApi.OnPush(msg)
+		setFrozen(true)
+	else
+		battleApi.OnPush(msg)
+	end
+end)
+
+-- A "Battle!" prompt on every other player's character (made locally, so only
+-- you see prompts for others).
+local function addChallengePrompt(other: Player, character: Model)
+	if other == player then
+		return
+	end
+	local rootPart = character:WaitForChild("HumanoidRootPart", 10)
+	if not rootPart then
+		return
+	end
+	local pr = Instance.new("ProximityPrompt")
+	pr.Name = "ChallengePrompt"
+	pr.ActionText = "Battle!"
+	pr.ObjectText = "Challenge " .. other.DisplayName
+	pr.HoldDuration = 0.4
+	pr.MaxActivationDistance = 12
+	pr.RequiresLineOfSight = false
+	pr.Parent = rootPart
+	pr.Triggered:Connect(function()
+		if BattleUI.Active or Reveal.Active then
 			return
 		end
-		BIOME = model:GetAttribute("ChamberBiome") or BIOME
-		if incubatorPanel.IsOpen then
-			refreshIncubator()
-			task.spawn(refreshOdds)
+		local r = R.ChallengePlayer:InvokeServer(other)
+		if r and r.Ok then
+			UI.Toast("Challenge sent to " .. other.DisplayName .. "! Waiting for an answer...", UI.Colors.Purple)
 		else
-			openOnly(incubatorPanel)
+			showError(r and r.Error)
 		end
 	end)
 end
-for _, ch in CollectionService:GetTagged("MutationChamber") do
-	task.spawn(hookChamber, ch)
+local function watchPlayer(other: Player)
+	other.CharacterAdded:Connect(function(c)
+		addChallengePrompt(other, c)
+	end)
+	if other.Character then
+		task.spawn(addChallengePrompt, other, other.Character)
+	end
 end
-CollectionService:GetInstanceAddedSignal("MutationChamber"):Connect(hookChamber)
+for _, p in Players:GetPlayers() do
+	watchPlayer(p)
+end
+Players.PlayerAdded:Connect(watchPlayer)
+
+-- Your own pod: open a ready egg, or open the incubator to start one.
+claimFromPod = function()
+	if readyEgg() then
+		claim()
+	elseif not incubatorPanel.IsOpen then
+		openOnly(incubatorPanel)
+	end
+end
 
 -- Initial state.
 task.spawn(function()

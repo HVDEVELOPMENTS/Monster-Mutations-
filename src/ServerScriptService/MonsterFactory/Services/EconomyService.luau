@@ -4,6 +4,7 @@ local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.MonsterFactory.Shared.Config)
 local Registry = require(ReplicatedStorage.MonsterFactory.Shared.Registry)
+local Tutorial = require(ReplicatedStorage.MonsterFactory.Shared.Tutorial)
 local ProgressionService = require(script.Parent.ProgressionService)
 
 local EconomyService = {}
@@ -106,8 +107,9 @@ function EconomyService:Sell(player: Player, monsterId: any)
 	end
 	local value = Config.SellValue[rec.RarityTier] or 0
 	data.Monsters[monsterId] = nil
-	if data.Equipped == monsterId then
-		data.Equipped = nil
+	local slot = table.find(data.Equipped, monsterId)
+	if slot then
+		table.remove(data.Equipped, slot)
 		self:PublishEquipped(player)
 	end
 	data.Coins += value
@@ -117,42 +119,120 @@ function EconomyService:Sell(player: Player, monsterId: any)
 	return { Ok = true, Coins = value }
 end
 
--- Publishes the equipped monster's look (not its stats) as a player attribute so
--- every client can render the follower. Empty string = nothing equipped.
+-- Bulk sell: every monster at or below `maxTier` that is not locked or equipped.
+-- Capped at Rare so one tap can never dump high-value monsters. preview = true
+-- only counts, so the client can confirm with real numbers.
+EconomyService.BulkSellMaxTier = 3
+
+function EconomyService:SellBulk(player: Player, maxTier: any, preview: any)
+	local profile = self.PlayerData.Get(player)
+	if not profile then
+		return { Ok = false, Error = "NotLoaded" }
+	end
+	if type(maxTier) ~= "number" or maxTier ~= math.floor(maxTier) or maxTier < 1 or maxTier > EconomyService.BulkSellMaxTier then
+		return { Ok = false, Error = "BadRequest" }
+	end
+	local data = profile.Data
+	local ids, value = {}, 0
+	for id, rec in data.Monsters do
+		if rec.RarityTier <= maxTier and not data.Locked[id] and not table.find(data.Equipped, id) then
+			table.insert(ids, id)
+			value += Config.SellValue[rec.RarityTier] or 0
+		end
+	end
+	if preview == true or #ids == 0 then
+		return { Ok = true, Count = #ids, Coins = value, Preview = true }
+	end
+	for _, id in ids do
+		data.Monsters[id] = nil
+	end
+	data.Coins += value
+	data.Stats.Sold += #ids
+	self:InvalidateIncome(player)
+	self.PlayerData.MarkDirty(player, "All")
+	return { Ok = true, Count = #ids, Coins = value }
+end
+
+-- Publishes the equipped monsters' looks (not their stats) as the "EquippedPets"
+-- player attribute (a JSON list, in slot order) so every client can render the
+-- followers.
 function EconomyService:PublishEquipped(player: Player)
 	if typeof(player) ~= "Instance" then
 		return -- test doubles have no attributes
 	end
 	local profile = self.PlayerData.Get(player)
-	local rec = profile and profile.Data.Equipped and profile.Data.Monsters[profile.Data.Equipped]
-	if not rec then
-		player:SetAttribute("EquippedPet", "")
-		return
+	local looks = {}
+	if profile then
+		for _, id in profile.Data.Equipped do
+			local rec = profile.Data.Monsters[id]
+			if rec then
+				table.insert(looks, {
+					MonsterId = rec.MonsterId,
+					SpeciesId = rec.SpeciesId,
+					DisplayName = rec.DisplayName,
+					Genes = rec.Genes,
+					ActiveMutations = rec.ActiveMutations,
+					RarityTier = rec.RarityTier,
+					PrimaryElement = rec.PrimaryElement,
+				})
+			end
+		end
 	end
-	player:SetAttribute("EquippedPet", HttpService:JSONEncode({
-		MonsterId = rec.MonsterId,
-		SpeciesId = rec.SpeciesId,
-		DisplayName = rec.DisplayName,
-		Genes = rec.Genes,
-		ActiveMutations = rec.ActiveMutations,
-		RarityTier = rec.RarityTier,
-		PrimaryElement = rec.PrimaryElement,
-	}))
+	player:SetAttribute("EquippedPets", HttpService:JSONEncode(looks))
 end
 
--- Equip a monster as your follower, or pass nil to unequip.
-function EconomyService:Equip(player: Player, monsterId: any)
+-- Equip (on = true, the default) or unequip a follower; monsterId nil unequips all.
+-- Equipping is refused when every pet slot is taken.
+function EconomyService:Equip(player: Player, monsterId: any, on: any)
 	local profile = self.PlayerData.Get(player)
 	if not profile then
 		return { Ok = false, Error = "NotLoaded" }
 	end
-	if monsterId ~= nil and (not isId(monsterId) or not profile.Data.Monsters[monsterId]) then
-		return { Ok = false, Error = "NotOwned" }
+	local data = profile.Data
+	if on ~= nil and type(on) ~= "boolean" then
+		return { Ok = false, Error = "BadRequest" }
 	end
-	profile.Data.Equipped = monsterId
+	if monsterId == nil then
+		table.clear(data.Equipped)
+	else
+		if not isId(monsterId) or not data.Monsters[monsterId] then
+			return { Ok = false, Error = "NotOwned" }
+		end
+		local slot = table.find(data.Equipped, monsterId)
+		if on == false then
+			if slot then
+				table.remove(data.Equipped, slot)
+			end
+		elseif not slot then
+			if #data.Equipped >= ProgressionService.PetSlots(data) then
+				return { Ok = false, Error = "PetSlotsFull" }
+			end
+			table.insert(data.Equipped, monsterId)
+		end
+	end
 	self:PublishEquipped(player)
 	self.PlayerData.MarkDirty(player, "All")
-	return { Ok = true, Equipped = monsterId }
+	return { Ok = true, Equipped = data.Equipped }
+end
+
+-- Getting Started reward (Shared/Tutorial): paid once, only when every step is
+-- really done according to the saved data.
+function EconomyService:ClaimTutorialReward(player: Player)
+	local profile = self.PlayerData.Get(player)
+	if not profile then
+		return { Ok = false, Error = "NotLoaded" }
+	end
+	local data = profile.Data
+	if data.TutorialRewarded then
+		return { Ok = false, Error = "AlreadyClaimed" }
+	end
+	if Tutorial.Current(Tutorial.FromData(data)) ~= nil then
+		return { Ok = false, Error = "NotFinished" }
+	end
+	data.TutorialRewarded = true
+	data.Coins += Tutorial.Reward
+	self.PlayerData.MarkDirty(player, "All")
+	return { Ok = true, Coins = Tutorial.Reward }
 end
 
 function EconomyService:ToggleLock(player: Player, monsterId: any)
